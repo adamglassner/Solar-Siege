@@ -1,0 +1,13 @@
+# Godot import settings and text resources
+*.gd text eol=lf
+*.tscn text eol=lf
+*.tres text eol=lf
+*.import text eol=lf
+*.godot text eol=lf
+*.md text eol=lf
+*.bat text eol=crlf
+*.nsi text eol=crlf
+*.png binary
+*.wav binary
+*.ttf binary
+*.ico binary

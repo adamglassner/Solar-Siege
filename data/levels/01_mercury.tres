@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="LevelData" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/backgrounds/mercury.png" id="1_su7om"]
+[ext_resource type="Texture2D" path="res://assets/bunkers/mercury.png" id="2_awewl"]
+[ext_resource type="AudioStream" path="res://assets/audio/music/mercury.wav" id="3_6p8p4"]
+[ext_resource type="Script" path="res://scripts/level_data.gd" id="4_y8xj4"]
+
+[resource]
+script = ExtResource("4_y8xj4")
+planet = "Mercury"
+tagline = "The Scorched Frontier"
+fact = "Closest world to the Sun. Daytime surface tops 430 °C."
+rows = PackedStringArray("squid", "crab", "crab", "drone", "drone")
+bunker_dust = Color(0.65, 0.53083324, 0.45499998, 1)
+background = ExtResource("1_su7om")
+bunker_texture = ExtResource("2_awewl")
+music = ExtResource("3_6p8p4")

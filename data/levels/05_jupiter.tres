@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="LevelData" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/backgrounds/jupiter.png" id="1_32af0"]
+[ext_resource type="Texture2D" path="res://assets/bunkers/jupiter.png" id="2_n1j6a"]
+[ext_resource type="AudioStream" path="res://assets/audio/music/jupiter.wav" id="3_fbajo"]
+[ext_resource type="Script" path="res://scripts/level_data.gd" id="4_k46sx"]
+
+[resource]
+script = ExtResource("4_k46sx")
+planet = "Jupiter"
+tagline = "Storm of the Giant"
+fact = "Its Great Red Spot is a storm wider than the entire Earth."
+rows = PackedStringArray("cruiser", "squid", "beetle", "beetle", "crab", "drone")
+cols = 11
+speed = 72.0
+fire_rate = 1.25
+bullet_speed = 440.0
+dive_chance = 0.05
+saucer_every = 20.0
+alien_tint = 4
+hue_shift = 30.0
+bunker_dust = Color(0.65, 0.55249995, 0.45499998, 1)
+background = ExtResource("1_32af0")
+bunker_texture = ExtResource("2_n1j6a")
+music = ExtResource("3_fbajo")

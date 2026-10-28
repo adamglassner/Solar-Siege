@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="LevelData" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/backgrounds/saturn.png" id="1_c4st6"]
+[ext_resource type="Texture2D" path="res://assets/bunkers/saturn.png" id="2_74fnv"]
+[ext_resource type="AudioStream" path="res://assets/audio/music/saturn.wav" id="3_mi0sk"]
+[ext_resource type="Script" path="res://scripts/level_data.gd" id="4_2axxs"]
+
+[resource]
+script = ExtResource("4_2axxs")
+planet = "Saturn"
+tagline = "Battle of the Rings"
+fact = "Its rings are mostly water ice, yet only about ten metres thick."
+rows = PackedStringArray("wraith", "squid", "beetle", "crab", "crab", "drone")
+cols = 11
+speed = 78.0
+fire_rate = 1.45
+bullet_speed = 460.0
+dive_chance = 0.07
+saucer_every = 19.0
+alien_tint = 5
+hue_shift = 50.0
+bunker_dust = Color(0.65, 0.602931, 0.45499998, 1)
+background = ExtResource("1_c4st6")
+bunker_texture = ExtResource("2_74fnv")
+music = ExtResource("3_mi0sk")

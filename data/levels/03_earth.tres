@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="LevelData" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/backgrounds/earth.png" id="1_3ti84"]
+[ext_resource type="Texture2D" path="res://assets/bunkers/earth.png" id="2_1ooer"]
+[ext_resource type="AudioStream" path="res://assets/audio/music/earth.wav" id="3_fqk70"]
+[ext_resource type="Script" path="res://scripts/level_data.gd" id="4_anlqk"]
+
+[resource]
+script = ExtResource("4_anlqk")
+planet = "Earth"
+tagline = "Defend the Homeworld"
+fact = "The only world known to harbour life. Make sure it stays that way."
+rows = PackedStringArray("cruiser", "squid", "crab", "crab", "drone", "drone")
+cols = 10
+speed = 60.0
+fire_rate = 0.88
+bullet_speed = 400.0
+dive_chance = 0.01
+saucer_every = 22.0
+alien_tint = 2
+hue_shift = 100.0
+bunker_dust = Color(0.45499998, 0.65, 0.4901, 1)
+background = ExtResource("1_3ti84")
+bunker_texture = ExtResource("2_1ooer")
+music = ExtResource("3_fqk70")

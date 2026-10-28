@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="LevelData" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/backgrounds/uranus.png" id="1_kge0q"]
+[ext_resource type="Texture2D" path="res://assets/bunkers/uranus.png" id="2_en2rp"]
+[ext_resource type="AudioStream" path="res://assets/audio/music/uranus.wav" id="3_xk6ix"]
+[ext_resource type="Script" path="res://scripts/level_data.gd" id="4_ep1rp"]
+
+[resource]
+script = ExtResource("4_ep1rp")
+planet = "Uranus"
+tagline = "The Sideways World"
+fact = "Tipped on its side, each pole gets 42 years of sunlight, then 42 of night."
+rows = PackedStringArray("cruiser", "wraith", "squid", "beetle", "crab", "drone")
+cols = 11
+speed = 84.0
+fire_rate = 1.65
+bullet_speed = 480.0
+dive_chance = 0.09
+saucer_every = 18.0
+alien_tint = 6
+hue_shift = 160.0
+bunker_dust = Color(0.45499998, 0.6444286, 0.65, 1)
+background = ExtResource("1_kge0q")
+bunker_texture = ExtResource("2_en2rp")
+music = ExtResource("3_xk6ix")

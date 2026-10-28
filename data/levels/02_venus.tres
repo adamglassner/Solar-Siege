@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="LevelData" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/backgrounds/venus.png" id="1_ie423"]
+[ext_resource type="Texture2D" path="res://assets/bunkers/venus.png" id="2_83381"]
+[ext_resource type="AudioStream" path="res://assets/audio/music/venus.wav" id="3_4wk71"]
+[ext_resource type="Script" path="res://scripts/level_data.gd" id="4_rg04g"]
+
+[resource]
+script = ExtResource("4_rg04g")
+planet = "Venus"
+tagline = "Beneath the Acid Clouds"
+fact = "Its thick clouds trap heat, making it the hottest planet of all."
+rows = PackedStringArray("squid", "crab", "crab", "drone", "drone")
+cols = 10
+speed = 54.0
+fire_rate = 0.62
+bullet_speed = 380.0
+saucer_every = 24.0
+alien_tint = 1
+hue_shift = 25.0
+bunker_dust = Color(0.65, 0.59522474, 0.45499998, 1)
+background = ExtResource("1_ie423")
+bunker_texture = ExtResource("2_83381")
+music = ExtResource("3_4wk71")

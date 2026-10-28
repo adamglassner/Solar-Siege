@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="LevelData" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/backgrounds/neptune.png" id="1_eeyja"]
+[ext_resource type="Texture2D" path="res://assets/bunkers/neptune.png" id="2_tmcl7"]
+[ext_resource type="AudioStream" path="res://assets/audio/music/neptune.wav" id="3_uf3qu"]
+[ext_resource type="Script" path="res://scripts/level_data.gd" id="4_ospw2"]
+
+[resource]
+script = ExtResource("4_ospw2")
+planet = "Neptune"
+tagline = "Winds of the Abyss"
+fact = "Supersonic winds here reach 2,100 km/h, the fastest in the solar system."
+rows = PackedStringArray("wraith", "wraith", "beetle", "beetle", "crab", "crab")
+cols = 11
+speed = 90.0
+fire_rate = 1.85
+bullet_speed = 500.0
+dive_chance = 0.11
+saucer_every = 17.0
+alien_tint = 7
+hue_shift = 200.0
+bunker_dust = Color(0.45499998, 0.51570755, 0.65, 1)
+background = ExtResource("1_eeyja")
+bunker_texture = ExtResource("2_tmcl7")
+music = ExtResource("3_uf3qu")

@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="LevelData" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/backgrounds/pluto.png" id="1_2u7db"]
+[ext_resource type="Texture2D" path="res://assets/bunkers/pluto.png" id="2_wkiux"]
+[ext_resource type="AudioStream" path="res://assets/audio/music/pluto.wav" id="3_nyvdd"]
+[ext_resource type="Script" path="res://scripts/level_data.gd" id="4_4p5do"]
+
+[resource]
+script = ExtResource("4_4p5do")
+planet = "Pluto"
+tagline = "The Edge of Darkness"
+fact = "At the frozen edge of the system, the invasion's mothership awaits."
+rows = PackedStringArray("cruiser", "wraith", "wraith", "beetle", "squid", "crab")
+cols = 11
+speed = 96.0
+fire_rate = 2.05
+bullet_speed = 520.0
+dive_chance = 0.13
+saucer_every = 16.0
+alien_tint = 8
+hue_shift = 280.0
+bunker_dust = Color(0.611, 0.45499998, 0.65, 1)
+background = ExtResource("1_2u7db")
+bunker_texture = ExtResource("2_wkiux")
+music = ExtResource("3_nyvdd")
+boss = true
