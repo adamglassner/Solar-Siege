@@ -1,0 +1,120 @@
+# Exports Solar Siege for Windows with Godot and publishes it as a GitHub Release.
+# Ironite Launcher installs and updates the game from the latest release, so
+# every release must include SolarSiege-<version>-windows.zip.
+#
+# To release: bump the version (see README), then push to main. If that version
+# has no release yet, this exports it and publishes v<version> (creating the tag).
+# Pushes that don't change the version do nothing. "Run workflow" on the Actions
+# tab does the same check by hand, and lets you pick a Godot version.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      godot:
+        description: "Godot version tag (blank = newest 4.7.x stable)"
+        required: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  GODOT_SERIES: "4.7"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is this version already released?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(grep -m1 -oP '^config/version="\K[^"]+' project.godot)
+          [ -n "$VERSION" ] || { echo "::error::Could not read the game version"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v$VERSION is already released - nothing to do."; echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Releasing v$VERSION"; echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Godot and export templates
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANT: ${{ github.event.inputs.godot }}
+        run: |
+          set -euo pipefail
+          TAG="$WANT"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release list --repo godotengine/godot-builds --limit 200 --json tagName -q '.[].tagName' \
+                  | grep -E "^${GODOT_SERIES//./\\.}(\.[0-9]+)*-stable$" | sort -V | tail -1)
+          fi
+          [ -n "$TAG" ] || { echo "::error::No Godot $GODOT_SERIES stable release found"; exit 1; }
+          echo "Using Godot $TAG"
+          mkdir -p "$RUNNER_TEMP/godot" && cd "$RUNNER_TEMP/godot"
+          gh release download "$TAG" --repo godotengine/godot-builds \
+            -p "Godot_v${TAG}_linux.x86_64.zip" -p "Godot_v${TAG}_export_templates.tpz"
+          unzip -q "Godot_v${TAG}_linux.x86_64.zip"
+          mv "Godot_v${TAG}_linux.x86_64" godot && chmod +x godot
+          TPL="$HOME/.local/share/godot/export_templates/${TAG/-/.}"
+          mkdir -p "$TPL"
+          unzip -q "Godot_v${TAG}_export_templates.tpz" -d tpl
+          mv tpl/templates/* "$TPL/"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+
+      - name: Export for Windows
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          set -uo pipefail
+          OUT="build/windows/SolarSiege.exe"
+          mkdir -p "$(dirname "$OUT")"
+          timeout 900 godot --headless --import --quit || true
+          timeout 900 godot --headless --export-release "Windows Desktop" "$OUT" || true
+          if [ ! -f "$OUT" ]; then
+            echo "::warning::Export failed; retrying without exe resource editing"
+            sed -i 's/^application\/modify_resources=true/application\/modify_resources=false/' export_presets.cfg
+            timeout 900 godot --headless --export-release "Windows Desktop" "$OUT" || true
+          fi
+          [ -f "$OUT" ] || { echo "::error::Godot did not produce $OUT"; exit 1; }
+          ls -la "$(dirname "$OUT")"
+
+      - name: Package
+        if: steps.check.outputs.skip != 'true'
+        id: pkg
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.check.outputs.version }}"
+          if [ "${{ github.ref_type }}" = "tag" ] && [ "${{ github.ref_name }}" != "v$VERSION" ]; then
+            echo "::error::Tag ${{ github.ref_name }} does not match the game version $VERSION"; exit 1
+          fi
+          D="pkg/SolarSiege"
+          mkdir -p "$D"
+          cp "$(dirname "build/windows/SolarSiege.exe")"/* "$D/"
+          sed 's/\r$//; s/$/\r/' CHANGELOG.md > "$D/CHANGELOG.txt"
+          printf '%s\r\n' "$VERSION" > "$D/VERSION"
+          ZIP="SolarSiege-$VERSION-windows.zip"
+          (cd pkg && zip -qr "$GITHUB_WORKSPACE/$ZIP" "SolarSiege")
+          { awk 'BEGIN{n=0} /^## /{n++; if(n==2) exit} n==1 && !/^## /' CHANGELOG.md; } > notes.md
+          printf '\n---\nInstall and update this game with **Ironite Launcher** (https://github.com/adamglassner/launcher), or download the zip, unzip it and run SolarSiege.exe.\n' >> notes.md
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        if: steps.check.outputs.skip != 'true'
+        with:
+          tag_name: v${{ steps.check.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Solar Siege ${{ steps.check.outputs.version }}
+          body_path: notes.md
+          files: ${{ steps.pkg.outputs.zip }}
+          make_latest: true
