@@ -21,10 +21,12 @@ static func open_credits() -> InfoScreen:
 	t += "[font_size=30]A game by [b]Ironite[/b][/font_size]\n\n\n"
 	for row in [
 		["Game Design", "Ironite"],
+		["Story", "Ironite"],
 		["Programming", "Ironite"],
 		["Art & Visual Effects", "Ironite"],
 		["Sound Effects & Music", "Ironite"],
 		["Level Design & Balancing", "Ironite"],
+		["Multiplayer & Level Editor", "Ironite"],
 		["Testing", "Ironite"],
 	]:
 		t += "[color=%s][font_size=20]%s[/font_size][/color]\n[font_size=30][b]%s[/b][/font_size]\n\n" % [gold, row[0].to_upper(), row[1]]

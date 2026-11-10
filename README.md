@@ -1,6 +1,6 @@
 # Solar Siege
 
-**Version 1.1.0** · A game by **Ironite** · A modern HD take on the classic arcade alien shooter, fought across all nine worlds of the solar system. Made with the **Godot Engine 4.7.2**.
+**Version 1.2.0** · A game by **Ironite** · A modern HD take on the classic arcade alien shooter, fought across all nine worlds of the solar system. Made with the **Godot Engine 4.7.2**.
 
 Fly a lone fighter from Mercury to Pluto, blast marching alien formations, hide behind crumbling shields, grab power-ups and take down the mothership boss **Erebus** at the edge of the system.
 
@@ -8,7 +8,7 @@ Fly a lone fighter from Mercury to Pluto, blast marching alien formations, hide 
 
 ## Install and play
 
-Run **`Solar Siege Setup 1.1.0.exe`**. It installs to your user folder (no admin rights needed) and adds Start Menu and desktop shortcuts plus an uninstaller (Settings → Apps).
+Run **`Solar Siege Setup 1.2.0.exe`**. It installs to your user folder (no admin rights needed) and adds Start Menu and desktop shortcuts plus an uninstaller (Settings → Apps).
 
 > Windows SmartScreen may warn about an unknown publisher because the installer isn't code-signed. Click **More info → Run anyway**.
 
@@ -25,6 +25,24 @@ Saves and settings live in `%APPDATA%\Solar Siege`. Uninstalling keeps them.
 | Menus | Arrows + Enter, or the mouse | D-pad + A, B to go back |
 
 **Saving:** the game saves automatically at the start of each planet. **Continue** on the main menu resumes from there. *Save & Quit* in the pause menu does the same and returns to the menu.
+
+### Story
+
+Year 2189. EREBUS, the Void Sovereign, wakes at the edge of the solar system and sends its swarm toward the Sun. New Game opens with a short intro (a solo version for the last pilot of the Aurora, and a squadron version for multiplayer). Space / A continues, Esc / Start skips. The story text is in `data/story.json`.
+
+### Multiplayer (up to 4 pilots, co-op)
+
+Everyone flies their own ship in the same battle, with their own lives, bombs, power-ups and score. An **Extra Ship** revives a wingmate who is out of lives; the game ends when every pilot is out. More pilots means more enemy fire, tougher Cruisers and a stronger boss.
+
+- **Same Computer:** open Multiplayer → Same Computer. Each player presses **A** on their own controller to join (one player may use the keyboard: Join with Keyboard). **LB / RB** (keyboard: **Q / E**) changes your ship colour, **B** leaves. Then pick Campaign or a custom map, the difficulty, and Start Game.
+- **Online:** like Chess, Checkers and the card games. One player chooses **Host a Game** and reads out the address on screen; friends choose **Join a Game** and type it in. Works on a home network or over the internet (the host forwards **UDP port 47040** on their router). The host's game runs the battle. Everyone needs the same version. If Windows asks about the firewall the first time you host, choose **Allow**.
+- **Ship colours:** Blue, Red, Green, Gold, Purple, Orange, Teal and Silver. No two pilots can fly the same colour.
+
+### Level Editor and Custom Maps
+
+Main menu → **Custom Maps** → **New Map** (or Edit). Paint a formation of up to 13 x 6 aliens (left-click paints, right-click erases, keys 1–6 pick an alien and 0 the eraser; arrows + Space and a controller work too). Pick the backdrop, music, alien colours, march speed, enemy fire, shot speed, divers, bonus saucer, shields (0–4) and whether Erebus waits at the end. **Test Play** tries it straight away; **Save** keeps it.
+
+Play any map solo (**Play Solo**) or with friends (**Play with Friends**, same computer or online; guests don't need a copy). Maps are JSON files in `%APPDATA%\Solar Siege\maps` (**Open Maps Folder**), so you can share them. They are completely separate from the nine campaign planets in `data/levels/`, never change them, and don't affect your campaign save or high score.
 
 ### Power-ups
 
@@ -82,20 +100,29 @@ solar-siege-godot/
 ├─ scenes/
 │  ├─ intro.tscn              Ironite logo intro (first scene)
 │  ├─ menu.tscn               main menu
+│  ├─ story.tscn              story intro before the campaign
+│  ├─ lobby.tscn              multiplayer: Same Computer / Online
+│  ├─ maps.tscn               Custom Maps browser
+│  ├─ editor.tscn             Level Editor
 │  └─ play.tscn               gameplay (layers for world, HUD and banners)
 ├─ scripts/
 │  ├─ global.gd               settings, save game, high score, scene switching (autoload)
 │  ├─ audio.gd                sound effects and music player (autoload)
-│  ├─ play.gd                 gameplay: formation, shields, power-ups, saucer, boss, HUD
+│  ├─ play.gd                 gameplay for 1-4 pilots: formation, shields, power-ups, saucer, boss, HUD, online sync
+│  ├─ net.gd                  online play: host/join, lobby, messages (autoload)
+│  ├─ player_input.gd         each pilot's controls: keyboard, one controller, network or bot
+│  ├─ custom_maps.gd          saving/loading editor maps (user folder) and turning them into levels
+│  ├─ lobby.gd, maps.gd, editor.gd, story.gd   the new screens
 │  ├─ menu.gd                 main menu
 │  ├─ fx.gd                   explosions, sparks, smoke, floating score text
 │  ├─ stars.gd                parallax starfield
 │  ├─ level_data.gd           the LevelData resource type
 │  ├─ ui.gd                   fonts, colours and text helpers
 │  └─ ui/                     buttons, dialogs, options screen, credits/changelog screen
-├─ data/levels/               01_mercury.tres … 09_pluto.tres: one file per planet
+├─ data/levels/               01_mercury.tres … 09_pluto.tres: one file per planet (campaign)
+├─ data/story.json            story intro panels and victory lines
 ├─ assets/
-│  ├─ sprites/                player, aliens (per planet tint), saucer, boss, shots, power-ups, effects, HUD icons
+│  ├─ sprites/                player ship + 8 colour variants (ships/), aliens, saucer, boss, shots, power-ups, effects, HUD icons
 │  ├─ backgrounds/            one 1920x1080 backdrop per planet + the menu
 │  ├─ bunkers/                shield textures per planet
 │  ├─ ui/                     title logo, Ironite logo, buttons, panels, sliders, bars (theme.tres uses these)
@@ -121,7 +148,7 @@ Every graphic and sound is a plain file. To restyle the game, replace a file wit
 2. Install **NSIS 3** from https://nsis.sourceforge.io/Download (once).
 3. Double-click **`build-windows.bat`**. If Godot isn't at `C:\Godot\Godot_v4.7.2-stable_win64.exe`, edit the path at the top of the file first.
 
-The installer appears in `build\Solar Siege Setup 1.1.0.exe`.
+The installer appears in `build\Solar Siege Setup 1.2.0.exe`.
 
 ### Releasing a new version
 

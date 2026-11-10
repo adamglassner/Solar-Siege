@@ -1,6 +1,8 @@
 class_name LevelData
 extends Resource
 ## One planet / level. Edit these in the Godot inspector (data/levels/*.tres) to tune the game.
+## Custom maps from the Level Editor become LevelData at runtime (see CustomMaps.to_level);
+## they are never saved over these files.
 
 @export var planet := ""
 @export var tagline := ""
@@ -27,3 +29,10 @@ extends Resource
 @export var music: AudioStream
 ## Pluto: spawns the boss after the fleet is destroyed.
 @export var boss := false
+
+# --- custom maps only (not used by the nine planets) ---
+var custom := false
+## Cell grid from the editor: rows of kinds ("" empty, CustomMaps.WIDE = right half of a cruiser).
+var grid: Array = []
+var saucer_enabled := true
+var shield_count := 4

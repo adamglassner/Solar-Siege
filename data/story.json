@@ -1,0 +1,25 @@
+{
+	"_note": "Story for Solar Siege. Each panel: bg = planet backdrop, art = boss | swarm | ship | squadron | none, speaker, text. Edit freely.",
+	"single": [
+		{"bg": "pluto", "art": "none", "speaker": "DEEP SPACE ARRAY · PLUTO", "text": "Year 2189. At the frozen edge of the solar system, the listening array on Pluto picks up a signal no one has ever heard before."},
+		{"bg": "pluto", "art": "boss", "speaker": "DEEP SPACE ARRAY · PLUTO", "text": "It isn't a message. It's a fleet. Something called EREBUS, the Void Sovereign, has woken in the dark, and its swarm is falling toward the Sun."},
+		{"bg": "mercury", "art": "swarm", "speaker": "SOLAR COMMAND", "text": "The swarm strikes where we are weakest. Mercury's solar foundries go dark in a single night. One by one, the outposts stop answering."},
+		{"bg": "earth", "art": "ship", "speaker": "SOLAR COMMAND", "text": "Every fleet in the system is scattered or gone. Every fleet but one: the AURORA, our last interceptor still fuelled and armed. Its pilot is you."},
+		{"bg": "mercury", "art": "ship", "speaker": "SOLAR COMMAND", "text": "Start at Mercury. Drive the swarm back, world by world, all the way out to Pluto, and end Erebus where it began. Good luck, pilot."}
+	],
+	"multi": [
+		{"bg": "pluto", "art": "none", "speaker": "DEEP SPACE ARRAY · PLUTO", "text": "Year 2189. At the frozen edge of the solar system, the listening array on Pluto picks up a signal no one has ever heard before."},
+		{"bg": "pluto", "art": "boss", "speaker": "DEEP SPACE ARRAY · PLUTO", "text": "It isn't a message. It's a fleet. Something called EREBUS, the Void Sovereign, has woken in the dark, and its swarm is falling toward the Sun."},
+		{"bg": "earth", "art": "swarm", "speaker": "SOLAR COMMAND", "text": "No single pilot can turn back a swarm this size. So Solar Command calls up AURORA SQUADRON: up to four interceptors, flying wing to wing."},
+		{"bg": "saturn", "art": "squadron", "speaker": "SOLAR COMMAND", "text": "Watch each other's backs and share the power cores. If a wingmate goes down for good, grab an Extra Ship and bring them back into the fight."},
+		{"bg": "mercury", "art": "squadron", "speaker": "SOLAR COMMAND", "text": "Squadron, launch. Mercury first, Pluto last. Erebus never gets to see the Sun."}
+	],
+	"victory_single": [
+		"Erebus falls silent, and the swarm scatters into the dark.",
+		"Nine worlds, one pilot. The Aurora turns for home."
+	],
+	"victory_multi": [
+		"Erebus falls silent, and the swarm scatters into the dark.",
+		"Aurora Squadron flies home in formation. The Sun still shines."
+	]
+}

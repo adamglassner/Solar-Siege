@@ -1,5 +1,7 @@
 extends Node2D
-## Gameplay: the alien formation, shields, power-ups, bonus saucer, the Pluto boss, HUD and banners.
+## Gameplay: the alien formation, shields, power-ups, bonus saucer, the Pluto boss, HUD and banners,
+## for 1 to 4 pilots. Modes: "single", "local" (same computer, one controller each) and "online".
+## Online, the host runs the battle and sends snapshots; guests draw them and send their controls.
 ## All graphics are textures from assets/; this script only moves things around and decides what happens.
 
 const W := 1920.0
@@ -10,7 +12,9 @@ const CELL := 5
 const BUNKER_W := 200
 const BUNKER_H := 110
 const COL_W := 108.0
+const SNAP_RATE := 1.0 / 30.0
 
+const KINDS := ["drone", "crab", "squid", "beetle", "wraith", "cruiser"]
 const ROW_H := {"cruiser": 124.0, "drone": 82.0, "crab": 82.0, "squid": 82.0, "beetle": 88.0, "wraith": 90.0}
 const ALIEN_STATS := {
 	"drone": [1, 10], "crab": [1, 20], "squid": [1, 30], "beetle": [2, 40], "wraith": [3, 60], "cruiser": [7, 150],
@@ -20,12 +24,14 @@ const ALIEN_SIZE := {
 	"beetle": Vector2(90, 70), "wraith": Vector2(86, 74), "cruiser": Vector2(176, 100),
 }
 const ALIEN_BASE_HUE := {"drone": 120.0, "crab": 190.0, "squid": 310.0, "beetle": 30.0, "wraith": 270.0, "cruiser": 355.0}
+const POWERS := ["dual", "spread", "speed", "shield", "bomb", "rapid", "life"]
 const POWER_INFO := {
 	"dual": ["DUAL LASERS", 190.0], "spread": ["TRIPLE SPREAD", 280.0], "speed": ["SPEED BOOST", 50.0],
 	"shield": ["SHIELD", 210.0], "bomb": ["NOVA BOMB", 10.0], "rapid": ["RAPID FIRE", 130.0], "life": ["EXTRA SHIP", 330.0],
 }
+const WEAPONS := ["single", "dual", "spread"]
+const BOSS_STATES := ["enter", "fight", "dying"]
 
-const TEX_PLAYER := preload("res://assets/sprites/player.png")
 const TEX_LASER := preload("res://assets/sprites/projectiles/laser_player.png")
 const TEX_SAUCER := [preload("res://assets/sprites/saucer_0.png"), preload("res://assets/sprites/saucer_1.png")]
 const TEX_SAUCER_FLASH := [preload("res://assets/sprites/saucer_flash_0.png"), preload("res://assets/sprites/saucer_flash_1.png")]
@@ -47,6 +53,7 @@ const TEX_TIMER_TRACK := preload("res://assets/ui/timer_track.png")
 const TEX_TIMER_FILL := preload("res://assets/ui/timer_fill.png")
 const TEX_BOSSBAR_FRAME := preload("res://assets/ui/bossbar_frame.png")
 const TEX_BOSSBAR_FILL := preload("res://assets/ui/bossbar_fill.png")
+const TEX_PANEL := preload("res://assets/ui/panel_flat.png")
 
 
 class Alien:
@@ -67,6 +74,8 @@ class Alien:
 	var hue: float
 	var alive := true
 	var bomb_hit := -1
+	var target := 0 # pilot a diver is chasing
+	var rot := 0.0 # guests: tilt sent by the host
 
 
 class Bullet:
@@ -78,6 +87,8 @@ class Bullet:
 	var dmg := 1
 	var hue: float
 	var rot: float
+	var r := 0 # plasma radius (0 = player laser)
+	var owner := 0 # pilot who fired it (player shots)
 
 
 class Bunker:
@@ -87,33 +98,57 @@ class Bunker:
 	var texture: ImageTexture
 	var sprite: Sprite2D
 	var dirty := false
+	var sent := true
+
+
+class Pilot:
+	var idx := 0
+	var name := "Pilot"
+	var color := 0
+	var input: PlayerInput
+	var peer_id := 0
+	var tex: Texture2D
+	var x := W / 2
+	var vx := 0.0
+	var alive := true
+	var respawn_t := 0.0
+	var invuln := 0.0
+	var cooldown := 0.0
+	var weapon := "single"
+	var weapon_t := 0.0
+	var rapid_t := 0.0
+	var speed_t := 0.0
+	var shield_t := 0.0
+	var lives := 3
+	var bombs := 1
+	var score := 0
+	var left := false # online: disconnected
+
+	func playing() -> bool:
+		return alive and not left
+
+	func out() -> bool:
+		return left or (not alive and lives <= 0)
 
 
 # ---------------------------------------------------------------- state
+var mode := "single" # single | local | online
+var role := "" # online: host | guest
+var my_idx := 0 # online guest: which pilot is me
+var pilots: Array[Pilot] = []
 var lv: LevelData
 var level_index := 0
+var custom_map := {}
+var from_editor := false
 var diff := "normal"
 var dm: Dictionary
 var state := "intro" # intro | play | boss_warn | cleared | gameover | victory
 var state_t := 0.0
 var checkpoint := {}
+var start_info := {}
 
-var score := 0
-var lives := 3
-var bombs := 1
 var hi_score := 0
-
-var px := W / 2
-var pvx := 0.0
-var alive := true
-var respawn_t := 0.0
-var invuln := 0.0
-var cooldown := 0.0
-var weapon := "single"
-var weapon_t := 0.0
-var rapid_t := 0.0
-var speed_t := 0.0
-var shield_t := 0.0
+var team_bonus := 0 # clear bonuses (single player adds them to the pilot)
 
 var aliens: Array[Alien] = []
 var total_aliens := 1
@@ -147,6 +182,13 @@ var _plasma_cache := {}
 var _alien_tex := {}
 var _power_tex := {}
 var _hud_power_tex := {}
+var _events: Array = []
+var _snap_t := 0.0
+var _bunker_t := 0.0
+var _guest_bombs := 0
+var _last_snap_ms := 0
+var _paused_online: Dialog
+var _card_style: StyleBoxTexture
 
 @onready var world: Node2D = $World
 @onready var stars: Starfield = $World/Stars
@@ -179,17 +221,93 @@ func _ready() -> void:
 	var start: Dictionary = Global.play_start
 	if start.is_empty():
 		start = {"level": 0, "score": 0, "lives": 3, "bombs": 1, "difficulty": "normal"}
-	diff = start.difficulty
+	start_info = start.duplicate(true)
+	mode = start.get("mode", "single")
+	diff = start.get("difficulty", "normal")
 	dm = Global.DIFFICULTY[diff]
-	score = start.score
-	lives = start.lives
-	bombs = start.bombs
-	load_level(start.level)
+	from_editor = start.get("from_editor", false)
+	custom_map = start.get("custom", {})
+	if not custom_map.is_empty():
+		custom_map = CustomMaps.validate(custom_map)
+	_make_pilots(start)
+	if mode == "online":
+		role = "host" if Net.is_host() else "guest"
+		Net.game_message.connect(_on_net_message)
+		Net.peer_left.connect(_on_peer_left)
+		Net.host_left.connect(_on_host_left)
+	if role == "guest":
+		_last_snap_ms = Time.get_ticks_msec()
+		_guest_setup(start)
+	else:
+		load_level(start.get("level", 0))
+
+
+func _make_pilots(start: Dictionary) -> void:
+	pilots.clear()
+	var list: Array = start.get("players", [])
+	if mode == "single" or list.is_empty():
+		var p := Pilot.new()
+		p.name = Global.pilot_name()
+		p.input = PlayerInput.any()
+		p.color = 0
+		p.lives = start.get("lives", dm.lives)
+		p.bombs = start.get("bombs", 1)
+		p.score = start.get("score", 0)
+		list = []
+		pilots.append(p)
+	for i in list.size():
+		var d: Dictionary = list[i]
+		var p := Pilot.new()
+		p.idx = i
+		p.name = str(d.get("name", "Pilot %d" % (i + 1)))
+		p.color = int(d.get("color", i))
+		p.peer_id = int(d.get("id", 0))
+		var inp := str(d.get("input", "any"))
+		if inp.begins_with("pad:"):
+			p.input = PlayerInput.pad(int(inp.substr(4)))
+		elif inp == "kb":
+			p.input = PlayerInput.keyboard()
+		elif inp == "bot":
+			p.input = PlayerInput.bot()
+		elif mode == "online" and p.peer_id != Net.my_id:
+			p.input = PlayerInput.remote()
+		else:
+			p.input = PlayerInput.any()
+		if mode == "online" and p.peer_id == Net.my_id:
+			my_idx = i
+		p.lives = dm.lives
+		p.bombs = 1
+		pilots.append(p)
+	for p in pilots:
+		p.tex = Global.ship_texture(p.color)
+	_place_pilots()
+
+
+func _place_pilots() -> void:
+	var n := pilots.size()
+	for p in pilots:
+		p.x = W * (p.idx + 1) / (n + 1) if n > 1 else W / 2
+		p.vx = 0
+
+
+func multi() -> bool:
+	return pilots.size() > 1
+
+
+func is_guest() -> bool:
+	return role == "guest"
+
+
+func team_score() -> int:
+	var s := 0
+	for p in pilots:
+		s += p.score
+	return s
 
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and is_inside_tree() and not get_tree().paused:
-		if state in ["play", "intro", "boss_warn"] and not OS.has_feature("autotest"):
+		if state in ["play", "intro", "boss_warn"] and mode != "online" and not OS.has_feature("autotest"):
 			pause()
 
 
@@ -198,14 +316,26 @@ func _exit_tree() -> void:
 
 
 # ---------------------------------------------------------------- level setup
+func _level_for(i: int) -> LevelData:
+	if not custom_map.is_empty():
+		return CustomMaps.to_level(custom_map)
+	return Global.levels[i]
+
+
+func _level_power() -> int:
+	## How far into the campaign this level feels (custom maps count as mid-campaign).
+	return 4 if lv.custom else level_index
+
+
 func load_level(i: int) -> void:
 	level_index = i
-	lv = Global.levels[i]
-	checkpoint = {"level": i, "score": score, "lives": lives, "bombs": bombs, "difficulty": diff}
-	Global.save_game(checkpoint)
-	$World/Background.texture = lv.background
-	stars.setup(lv.planet.length() * 977 + 13)
-	fx.clear()
+	lv = _level_for(i)
+	if mode == "single" and not lv.custom:
+		var p := pilots[0]
+		checkpoint = {"level": i, "score": p.score, "lives": p.lives, "bombs": p.bombs, "difficulty": diff}
+		Global.save_game(checkpoint)
+	_ev(["level", i])
+	_setup_visuals()
 	bullets.clear()
 	powers.clear()
 	jobs.clear()
@@ -214,22 +344,28 @@ func load_level(i: int) -> void:
 	saucer_t = lv.saucer_every * randf_range(0.6, 1.0)
 	boss = null
 	wave = null
-	alive = true
-	respawn_t = 0.0
-	invuln = 0.0
-	px = W / 2
-	pvx = 0.0
-	weapon = "single"
-	weapon_t = 0.0
-	rapid_t = 0.0
-	speed_t = 0.0
-	shield_t = 0.0
+	for p in pilots:
+		p.alive = p.lives > 0 and not p.left
+		p.respawn_t = 0.0
+		p.invuln = 0.0
+		p.weapon = "single"
+		p.weapon_t = 0.0
+		p.rapid_t = 0.0
+		p.speed_t = 0.0
+		p.shield_t = 0.0
+	_place_pilots()
 	_build_formation()
-	_build_bunkers()
 	state = "intro"
 	state_t = 0.0
-	Audio.play_music(lv.music)
-	Audio.play("level_start")
+	_music(lv.music)
+	sfx("level_start")
+
+
+func _setup_visuals() -> void:
+	$World/Background.texture = lv.background
+	stars.setup(lv.planet.length() * 977 + 13)
+	fx.clear()
+	_build_bunkers()
 
 
 func _alien_textures(kind: String) -> Array:
@@ -247,14 +383,35 @@ func _plasma(hue: float, r: int) -> Texture2D:
 	var key := "%d_%d" % [h, r]
 	if not _plasma_cache.has(key):
 		var path := "res://assets/sprites/projectiles/plasma_%s.png" % key
-		_plasma_cache[key] = load(path) if ResourceLoader.exists(path) else load("res://assets/sprites/projectiles/plasma_290_11.png")
+		if not ResourceLoader.exists(path):
+			path = _nearest_plasma(h, r)
+		_plasma_cache[key] = load(path)
 	return _plasma_cache[key]
+
+
+func _nearest_plasma(h: int, r: int) -> String:
+	## Custom maps can mix any alien colours; use the closest exported shot colour.
+	var best := "res://assets/sprites/projectiles/plasma_290_11.png"
+	var best_d := 9999
+	for f in ResourceLoader.list_directory("res://assets/sprites/projectiles"):
+		if not f.begins_with("plasma_") or not f.ends_with(".png"):
+			continue
+		var parts := f.trim_suffix(".png").split("_")
+		var fh := int(parts[1])
+		var fr := int(parts[2])
+		var d := mini(absi(fh - h), 360 - absi(fh - h)) + absi(fr - r) * 40
+		if d < best_d:
+			best_d = d
+			best = "res://assets/sprites/projectiles/" + f
+	return best
 
 
 func _make_alien(kind: String, slot: Vector2, st := "formation") -> Alien:
 	var a := Alien.new()
 	var stats: Array = ALIEN_STATS[kind]
-	var hp_bonus := int(level_index / 3) if kind == "cruiser" else 0
+	var hp_bonus := int(_level_power() / 3) if kind == "cruiser" else 0
+	if kind == "cruiser" and multi():
+		hp_bonus += pilots.size() - 1
 	a.kind = kind
 	a.hp = stats[0] + hp_bonus
 	a.max_hp = a.hp
@@ -275,30 +432,68 @@ func _build_formation() -> void:
 	form_x = W / 2
 	form_start_y = 130.0
 	form_y = form_start_y - 700.0
-	var y := 0.0
-	var cols := lv.cols
-	for kind in lv.rows:
-		var rh: float = ROW_H[kind]
-		y += rh / 2
-		if kind == "cruiser":
-			var n := ceili(cols / 2.0)
-			for c in n:
-				aliens.append(_make_alien(kind, Vector2((c - (n - 1) / 2.0) * COL_W * 2, y)))
-		else:
-			for c in cols:
-				aliens.append(_make_alien(kind, Vector2((c - (cols - 1) / 2.0) * COL_W, y)))
-		y += rh / 2
-	total_aliens = aliens.size()
+	if lv.custom:
+		_build_custom_formation()
+	else:
+		var y := 0.0
+		var cols := lv.cols
+		for kind in lv.rows:
+			var rh: float = ROW_H[kind]
+			y += rh / 2
+			if kind == "cruiser":
+				var n := ceili(cols / 2.0)
+				for c in n:
+					aliens.append(_make_alien(kind, Vector2((c - (n - 1) / 2.0) * COL_W * 2, y)))
+			else:
+				for c in cols:
+					aliens.append(_make_alien(kind, Vector2((c - (cols - 1) / 2.0) * COL_W, y)))
+			y += rh / 2
+	total_aliens = maxi(1, aliens.size())
 	form_dir = 1.0 if randf() < 0.5 else -1.0
 	drop_left = 0.0
 	for a in aliens:
 		a.pos = Vector2(form_x, form_y) + a.slot
 
 
+func _build_custom_formation() -> void:
+	## Editor grid: keep empty rows and columns inside the used area so the shape stays as drawn.
+	var g: Array = lv.grid
+	var c0 := CustomMaps.MAX_COLS
+	var c1 := -1
+	var r0 := CustomMaps.MAX_ROWS
+	var r1 := -1
+	for r in g.size():
+		for c in g[r].size():
+			if str(g[r][c]) != "":
+				c0 = mini(c0, c)
+				c1 = maxi(c1, c)
+				r0 = mini(r0, r)
+				r1 = maxi(r1, r)
+	if c1 < 0:
+		return
+	var mid := (c0 + c1) / 2.0
+	var y := 0.0
+	for r in range(r0, r1 + 1):
+		var rh := 82.0
+		for k in g[r]:
+			if k in ROW_H:
+				rh = maxf(rh, ROW_H[k])
+		y += rh / 2
+		for c in g[r].size():
+			var k := str(g[r][c])
+			if k in KINDS:
+				var cx: float = c + (0.5 if k == "cruiser" else 0.0)
+				aliens.append(_make_alien(k, Vector2((cx - mid) * COL_W, y)))
+		y += rh / 2
+
+
 func _build_bunkers() -> void:
 	for b in bunkers:
 		b.sprite.queue_free()
 	bunkers.clear()
+	var count := lv.shield_count if lv.custom else 4
+	if count <= 0:
+		return
 	var src := lv.bunker_texture.get_image()
 	if src.is_compressed():
 		src.decompress()
@@ -306,9 +501,9 @@ func _build_bunkers() -> void:
 	src.convert(Image.FORMAT_RGBA8)
 	var cols := BUNKER_W / CELL
 	var rows := BUNKER_H / CELL
-	for i in 4:
+	for i in count:
 		var b := Bunker.new()
-		var cx := W * (0.2 + i * 0.2)
+		var cx := W * (i + 1) / (count + 1)
 		b.pos = Vector2(cx - BUNKER_W / 2.0, BUNKER_Y - BUNKER_H / 2.0)
 		b.image = src.duplicate()
 		b.mask = PackedByteArray()
@@ -361,19 +556,81 @@ func _erode(b: Bunker, x: float, y: float, radius: float) -> void:
 				continue
 			var d := Vector2(q * CELL + CELL / 2.0 - lx, r * CELL + CELL / 2.0 - ly).length()
 			if d < radius * (0.6 + randf() * 0.6):
-				b.mask[i] = 0
-				b.image.fill_rect(Rect2i(q * CELL * 2 - 1, r * CELL * 2 - 1, CELL * 2 + 2, CELL * 2 + 2), Color(0, 0, 0, 0))
-				b.dirty = true
+				_clear_cell(b, i)
+				b.sent = false
 
 
-# ---------------------------------------------------------------- helpers
+func _clear_cell(b: Bunker, i: int) -> void:
+	var cols := BUNKER_W / CELL
+	var q := i % cols
+	var r := i / cols
+	b.mask[i] = 0
+	b.image.fill_rect(Rect2i(q * CELL * 2 - 1, r * CELL * 2 - 1, CELL * 2 + 2, CELL * 2 + 2), Color(0, 0, 0, 0))
+	b.dirty = true
+
+
+# ---------------------------------------------------------------- helpers, effects & sound (mirrored to online guests)
 func schedule(delay: float, fn: Callable) -> void:
 	jobs.append([delay, fn])
+
+
+func _ev(e: Array) -> void:
+	if role == "host":
+		_events.append(e)
+
+
+func sfx(name: String) -> void:
+	Audio.play(name)
+	_ev(["sfx", name])
+
+
+func _music(stream: AudioStream) -> void:
+	Audio.play_music(stream)
+	_ev(["music", stream.resource_path if stream else ""])
+
+
+func fx_explosion(x: float, y: float, hue: float, scale := 1.0) -> void:
+	fx.explosion(x, y, hue, scale)
+	_ev(["ex", x, y, hue, scale])
+
+
+func fx_hit(x: float, y: float, hue: float) -> void:
+	fx.hit(x, y, hue)
+	_ev(["hit", x, y, hue])
+
+
+func fx_dust(x: float, y: float, c: Color) -> void:
+	fx.dust(x, y, c)
+	_ev(["dust", x, y, c])
+
+
+func fx_text(x: float, y: float, msg: String, c: Color, size := 26, life := 1.0) -> void:
+	fx.text(x, y, msg, c, size, life)
+	_ev(["txt", x, y, msg, c, size, life])
+
+
+func fx_add(kind: int, x: float, y: float, opts: Dictionary) -> void:
+	fx.add(kind, x, y, opts)
+	_ev(["fx", kind, x, y, opts])
+
+
+func set_flash(a: float) -> void:
+	flash_a = maxf(flash_a, a)
+	_ev(["flash", a])
 
 
 func add_shake(n: float) -> void:
 	if Global.settings.shake:
 		shake = maxf(shake, n)
+	_ev(["shake", n])
+
+
+func _saucer_sound(on: bool) -> void:
+	if on:
+		Audio.saucer_start()
+	else:
+		Audio.saucer_stop()
+	_ev(["saucer", on])
 
 
 func _formation_aliens() -> Array[Alien]:
@@ -384,17 +641,48 @@ func _formation_aliens() -> Array[Alien]:
 	return out
 
 
-func add_score(n: int) -> void:
-	score += n
-	if score > hi_score:
-		hi_score = score
+func add_score(p: Pilot, n: int) -> void:
+	p.score += n
+	if mode == "single" and not lv.custom and p.score > hi_score:
+		hi_score = p.score
 
 
 func _overlap(a: Vector2, asz: Vector2, b: Vector2, bsz: Vector2) -> bool:
 	return absf(a.x - b.x) * 2 < asz.x + bsz.x and absf(a.y - b.y) * 2 < asz.y + bsz.y
 
 
+func _any_playing() -> bool:
+	for p in pilots:
+		if p.playing():
+			return true
+	return false
+
+
+## A pilot for the aliens to aim at (random among those flying, or the nearest to x).
+func _target(near_x := -1.0) -> Pilot:
+	var live: Array[Pilot] = []
+	for p in pilots:
+		if p.playing():
+			live.append(p)
+	if live.is_empty():
+		return pilots[0]
+	if near_x >= 0:
+		var best := live[0]
+		for p in live:
+			if absf(p.x - near_x) < absf(best.x - near_x):
+				best = p
+		return best
+	return live.pick_random()
+
+
+func _difficulty_scale() -> float:
+	return 1.0 + 0.35 * (pilots.size() - 1)
+
+
 func pause() -> void:
+	if mode == "online":
+		_online_menu()
+		return
 	if get_tree().paused:
 		return
 	get_tree().paused = true
@@ -402,22 +690,43 @@ func pause() -> void:
 	var resume := func():
 		Dialog.close_top()
 		get_tree().paused = false
-	Dialog.open("Paused", ["Planet %d: %s" % [level_index + 1, lv.planet]], [
-		["Resume", resume],
-		["Options", func(): OptionsMenu.open()],
-		["Save & Quit", func():
+	var items := [["Resume", resume], ["Options", func(): OptionsMenu.open()]]
+	if mode == "single" and not lv.custom:
+		items.append(["Save & Quit", func():
 			Global.save_game(checkpoint)
-			Global.goto_menu()],
-		["Quit to Menu", func():
-			Dialog.open("Quit to Menu?", ["Progress on this planet will be lost.", "You can continue from the start of this planet."], [
-				["Quit", Global.goto_menu],
+			Global.goto_menu()])
+	if from_editor:
+		items.append(["Back to Editor", func(): Global.goto_scene("res://scenes/editor.tscn")])
+	items.append(["Quit to Menu", func():
+		var lines := ["Progress on this planet will be lost.", "You can continue from the start of this planet."]
+		if mode != "single" or lv.custom:
+			lines = ["This game will end."]
+		Dialog.open("Quit to Menu?", lines, [
+			["Quit", Global.goto_menu],
+			["Cancel", Dialog.close_top],
+		])])
+	var title := ("Planet %d: %s" % [level_index + 1, lv.planet]) if not lv.custom else lv.planet
+	Dialog.open("Paused", [title], items, 760, resume)
+
+
+func _online_menu() -> void:
+	## Online games don't stop for one player: this menu sits over the running battle.
+	if is_instance_valid(_paused_online):
+		return
+	Audio.play("menu_select")
+	_paused_online = Dialog.open("Menu", ["The battle keeps going while this is open."], [
+		["Resume", Dialog.close_top],
+		["Options", func(): OptionsMenu.open()],
+		["Leave Game", func():
+			Dialog.open("Leave the Game?", ["Your squadron will carry on without you." if is_guest() else "The game ends for everyone."], [
+				["Leave", Global.goto_menu],
 				["Cancel", Dialog.close_top],
 			])],
-	], 760, resume)
+	], 760)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause") and state in ["play", "intro", "boss_warn"]:
+	if event.is_action_pressed("pause") and state in ["play", "intro", "boss_warn", "cleared"]:
 		get_viewport().set_input_as_handled()
 		pause()
 
@@ -426,11 +735,32 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	var dt := minf(delta, 1.0 / 30.0)
 	time += dt
-	state_t += dt
 	shake = maxf(0.0, shake - dt * 40)
 	flash_a = maxf(0.0, flash_a - dt * 2.2)
-	stars.speed = 2.6 if speed_t > 0 else 1.0
+	var any_speed := false
+	for p in pilots:
+		any_speed = any_speed or p.speed_t > 0
+	stars.speed = 2.6 if any_speed else 1.0
 
+	if is_guest():
+		_guest_update(dt)
+	else:
+		_simulate(dt)
+		if role == "host":
+			_host_send(dt)
+
+	for b in bunkers:
+		if b.dirty:
+			b.texture.update(_with_mipmaps(b.image))
+			b.dirty = false
+	world.position = Vector2(randf_range(-shake, shake), randf_range(-shake, shake)) if shake > 0 else Vector2.ZERO
+	flash_rect.color.a = flash_a * 0.7
+	for n in [$World/Lasers, $World/Boss, $World/Actors, $World/Bullets, $World/Flames, $World/Player, $World/Shield, $World/Wave, hud, banner]:
+		n.queue_redraw()
+
+
+func _simulate(dt: float) -> void:
+	state_t += dt
 	for j in jobs:
 		j[0] -= dt
 	var due := jobs.filter(func(j): return j[0] <= 0)
@@ -444,12 +774,12 @@ func _process(delta: float) -> void:
 			for a in aliens:
 				a.pos = Vector2(form_x, form_y) + a.slot
 			_animate(dt, 0.5)
-			_update_player(dt, false)
+			_update_pilots(dt, false)
 			if state_t > 3.2:
 				state = "play"
 				state_t = 0
 		"play":
-			_update_player(dt, true)
+			_update_pilots(dt, true)
 			_update_formation(dt)
 			_update_aliens(dt)
 			_update_enemy_fire(dt)
@@ -460,7 +790,7 @@ func _process(delta: float) -> void:
 			_update_wave(dt)
 			_check_progress()
 		"boss_warn":
-			_update_player(dt, true)
+			_update_pilots(dt, true)
 			_update_bullets(dt)
 			_update_powers(dt)
 			_update_wave(dt)
@@ -469,28 +799,27 @@ func _process(delta: float) -> void:
 				state_t = 0
 				_spawn_boss()
 		"cleared":
-			_update_player(dt, false)
+			_update_pilots(dt, false)
 			_update_powers(dt)
 			bullets.assign(bullets.filter(func(b): return not b.enemy))
 			_update_bullets(dt)
 			if state_t > 3.6:
-				add_score(clear_bonus)
+				_award_clear_bonus()
 				load_level(level_index + 1)
 		"gameover", "victory":
 			_update_bullets(dt)
 			if state == "victory" and randf() < dt * 3:
-				fx.explosion(randf_range(200, W - 200), randf_range(150, 600), randf_range(0, 360), randf_range(0.6, 1.4))
+				fx_explosion(randf_range(200, W - 200), randf_range(150, 600), randf_range(0, 360), randf_range(0.6, 1.4))
 			if state_t > 1.5 and not end_shown:
 				_show_end_menu()
 
-	for b in bunkers:
-		if b.dirty:
-			b.texture.update(_with_mipmaps(b.image))
-			b.dirty = false
-	world.position = Vector2(randf_range(-shake, shake), randf_range(-shake, shake)) if shake > 0 else Vector2.ZERO
-	flash_rect.color.a = flash_a * 0.7
-	for n in [$World/Lasers, $World/Boss, $World/Actors, $World/Bullets, $World/Flames, $World/Player, $World/Shield, $World/Wave, hud, banner]:
-		n.queue_redraw()
+
+func _award_clear_bonus() -> void:
+	## Every pilot still in the fight gets the bonus.
+	for p in pilots:
+		if not p.out():
+			add_score(p, clear_bonus)
+	clear_bonus = 0
 
 
 func _ease_out_cubic(t: float) -> float:
@@ -504,44 +833,59 @@ func _animate(dt: float, rate: float) -> void:
 		anim_frame ^= 1
 
 
-func _update_player(dt: float, can_fire: bool) -> void:
-	invuln = maxf(0.0, invuln - dt)
-	if weapon_t > 0:
-		weapon_t = maxf(0.0, weapon_t - dt)
-		if weapon_t == 0:
-			weapon = "single"
-	rapid_t = maxf(0.0, rapid_t - dt)
-	speed_t = maxf(0.0, speed_t - dt)
-	if shield_t > 0:
-		shield_t = maxf(0.0, shield_t - dt)
-		if shield_t == 0:
-			Audio.play("menu_back")
-	if not alive:
-		if lives > 0:
-			respawn_t -= dt
-			if respawn_t <= 0:
-				alive = true
-				invuln = 2.5
-				px = W / 2
-				pvx = 0
+func _update_pilots(dt: float, can_fire: bool) -> void:
+	for p in pilots:
+		_update_pilot(p, dt, can_fire)
+
+
+func _tick_timers(p: Pilot, dt: float) -> void:
+	p.invuln = maxf(0.0, p.invuln - dt)
+	if p.weapon_t > 0:
+		p.weapon_t = maxf(0.0, p.weapon_t - dt)
+		if p.weapon_t == 0:
+			p.weapon = "single"
+	p.rapid_t = maxf(0.0, p.rapid_t - dt)
+	p.speed_t = maxf(0.0, p.speed_t - dt)
+	if p.shield_t > 0:
+		p.shield_t = maxf(0.0, p.shield_t - dt)
+		if p.shield_t == 0:
+			sfx("menu_back")
+
+
+func _move_pilot(p: Pilot, dt: float) -> void:
+	var mx := 860.0 if p.speed_t > 0 else 540.0
+	var dir := p.input.axis()
+	p.vx += (dir * mx - p.vx) * minf(1.0, dt * 14)
+	p.x = clampf(p.x + p.vx * dt, 70, W - 70)
+
+
+func _update_pilot(p: Pilot, dt: float, can_fire: bool) -> void:
+	if p.left:
 		return
-	var mx := 860.0 if speed_t > 0 else 540.0
-	var dir := Input.get_axis("move_left", "move_right")
-	if absf(dir) < 0.3:
-		dir = 0.0
-	pvx += (dir * mx - pvx) * minf(1.0, dt * 14)
-	px = clampf(px + pvx * dt, 70, W - 70)
-	if speed_t > 0 and randf() < dt * 40:
-		fx.add(FxSystem.K.STREAK, px + randf_range(-30, 30), PLAYER_Y + 40, {"vy": 300, "life": 0.4, "size": 3, "hue": 50, "light": 70, "drag": 1.0})
-	cooldown -= dt
-	if can_fire and Input.is_action_pressed("fire") and cooldown <= 0:
-		_shoot()
-	if can_fire and Input.is_action_just_pressed("bomb"):
-		_detonate_bomb()
+	_tick_timers(p, dt)
+	if not p.alive:
+		if p.lives > 0:
+			p.respawn_t -= dt
+			if p.respawn_t <= 0:
+				p.alive = true
+				p.invuln = 2.5
+				p.x = W * (p.idx + 1) / (pilots.size() + 1) if multi() else W / 2
+				p.vx = 0
+		return
+	if p.input.source != PlayerInput.Source.REMOTE:
+		_move_pilot(p, dt) # online guests move their own ship and send its position
+	if p.speed_t > 0 and randf() < dt * 40:
+		fx_add(FxSystem.K.STREAK, p.x + randf_range(-30, 30), PLAYER_Y + 40, {"vy": 300, "life": 0.4, "size": 3, "hue": 50, "light": 70, "drag": 1.0})
+	p.cooldown -= dt
+	var bomb := p.input.bomb_pressed()
+	if can_fire and p.input.fire() and p.cooldown <= 0:
+		_shoot(p)
+	if can_fire and bomb:
+		_detonate_bomb(p)
 
 
-func _shoot() -> void:
-	cooldown = 0.14 if rapid_t > 0 else 0.3
+func _shoot(p: Pilot) -> void:
+	p.cooldown = 0.14 if p.rapid_t > 0 else 0.3
 	var y := PLAYER_Y - 50
 	var spawn := func(x: float, angle: float):
 		var b := Bullet.new()
@@ -552,35 +896,37 @@ func _shoot() -> void:
 		b.enemy = false
 		b.hue = 185
 		b.rot = angle
+		b.owner = p.idx
 		bullets.append(b)
-	if weapon == "dual":
-		spawn.call(px - 22, 0.0)
-		spawn.call(px + 22, 0.0)
-		Audio.play("laser_dual")
-	elif weapon == "spread":
-		spawn.call(px, 0.0)
-		spawn.call(px - 14, -0.2)
-		spawn.call(px + 14, 0.2)
-		Audio.play("laser_spread")
+	if p.weapon == "dual":
+		spawn.call(p.x - 22, 0.0)
+		spawn.call(p.x + 22, 0.0)
+		sfx("laser_dual")
+	elif p.weapon == "spread":
+		spawn.call(p.x, 0.0)
+		spawn.call(p.x - 14, -0.2)
+		spawn.call(p.x + 14, 0.2)
+		sfx("laser_spread")
 	else:
-		spawn.call(px, 0.0)
-		Audio.play("laser")
-	fx.add(FxSystem.K.GLOW, px, y + 6, {"life": 0.08, "size": 30, "grow": -100, "hue": 185, "light": 80})
+		spawn.call(p.x, 0.0)
+		sfx("laser")
+	fx_add(FxSystem.K.GLOW, p.x, y + 6, {"life": 0.08, "size": 30, "grow": -100, "hue": 185, "light": 80})
 
 
-func _detonate_bomb() -> void:
-	if bombs <= 0:
-		Audio.play("denied")
+func _detonate_bomb(p: Pilot) -> void:
+	if p.bombs <= 0:
+		if mode == "single" or p.idx == my_idx:
+			Audio.play("denied")
 		return
-	bombs -= 1
+	p.bombs -= 1
 	wave_id += 1
-	wave = {"pos": Vector2(px, PLAYER_Y - 30), "r": 0.0, "id": wave_id}
-	flash_a = 0.9
+	wave = {"pos": Vector2(p.x, PLAYER_Y - 30), "r": 0.0, "id": wave_id, "owner": p.idx}
+	set_flash(0.9)
 	add_shake(26)
-	Audio.play("bomb")
+	sfx("bomb")
 	for b in bullets:
 		if b.enemy:
-			fx.hit(b.pos.x, b.pos.y, b.hue)
+			fx_hit(b.pos.x, b.pos.y, b.hue)
 	bullets.assign(bullets.filter(func(b): return not b.enemy))
 	lasers.clear()
 
@@ -589,17 +935,18 @@ func _update_wave(dt: float) -> void:
 	if wave == null:
 		return
 	wave.r += 2300 * dt
+	var owner: Pilot = pilots[clampi(wave.owner, 0, pilots.size() - 1)]
 	for a in aliens:
 		if not a.alive or a.bomb_hit == wave.id:
 			continue
 		if a.pos.distance_to(wave.pos) < wave.r:
 			a.bomb_hit = wave.id
-			_damage_alien(a, 3)
+			_damage_alien(a, 3, owner)
 	if saucer != null and saucer.pos.distance_to(wave.pos) < wave.r:
-		_damage_saucer(3)
+		_damage_saucer(3, owner)
 	if boss != null and boss.state == "fight" and boss.bomb_hit != wave.id and Vector2(boss.x, boss.y).distance_to(wave.pos) < wave.r:
 		boss.bomb_hit = wave.id
-		_damage_boss(12, boss.x, boss.y + 60)
+		_damage_boss(12, boss.x, boss.y + 60, owner)
 	if wave != null and wave.r > 2400:
 		wave = null
 
@@ -645,22 +992,26 @@ func _update_formation(dt: float) -> void:
 			for b in bunkers:
 				if _overlap(a.pos, a.size, b.pos + Vector2(BUNKER_W, BUNKER_H) / 2, Vector2(BUNKER_W, BUNKER_H)):
 					_erode(b, a.pos.x, a.pos.y, a.size.x * 0.55)
-	if lowest > PLAYER_Y - 40 and alive:
-		fx.text(W / 2, H / 2, "THEY BROKE THROUGH!", Color("#ff6b6b"), 54, 2)
-		_kill_player()
+	if lowest > PLAYER_Y - 40 and _any_playing():
+		fx_text(W / 2, H / 2, "THEY BROKE THROUGH!", Color("#ff6b6b"), 54, 2)
+		for p in pilots:
+			if p.playing():
+				_kill_pilot(p)
 		form_y = form_start_y
 		drop_left = 0
 
 
 func _update_aliens(dt: float) -> void:
-	var chance := lv.dive_chance * float(dm.speed) * dt
-	if chance > 0 and randf() < chance and alive:
+	var chance := lv.dive_chance * float(dm.speed) * dt * (1.0 + 0.25 * (pilots.size() - 1))
+	if chance > 0 and randf() < chance and _any_playing():
 		var cands := aliens.filter(func(a): return a.alive and a.state == "formation" and a.kind != "cruiser")
 		if cands.size() > 2:
 			var a: Alien = cands.pick_random()
+			var tp := _target()
 			a.state = "dive"
 			a.t = 0
-			a.vel = Vector2((px - a.pos.x) * 0.3, -160)
+			a.target = tp.idx
+			a.vel = Vector2((tp.x - a.pos.x) * 0.3, -160)
 			a.fired = false
 	for a in aliens:
 		if not a.alive:
@@ -668,16 +1019,21 @@ func _update_aliens(dt: float) -> void:
 		a.flash = maxf(0.0, a.flash - dt)
 		if a.state == "dive" or a.state == "minion":
 			a.t += dt
-			var ax := clampf((px - a.pos.x) * 2.2, -900, 900)
+			var tp: Pilot = pilots[clampi(a.target, 0, pilots.size() - 1)]
+			if not tp.playing():
+				tp = _target(a.pos.x)
+				a.target = tp.idx
+			var ax := clampf((tp.x - a.pos.x) * 2.2, -900, 900)
 			a.vel.x = clampf(a.vel.x + ax * dt, -420, 420)
 			a.vel.y = minf(a.vel.y + 520 * dt, 560 * float(dm.speed))
 			a.pos += a.vel * dt
 			if not a.fired and a.pos.y > 300 and a.pos.y < PLAYER_Y - 250:
 				a.fired = true
 				_alien_shoot(a, true)
-			if alive and invuln <= 0 and _overlap(a.pos, a.size * 0.7, Vector2(px, PLAYER_Y + 4), Vector2(70, 60)):
-				_damage_alien(a, 99)
-				_hit_player()
+			for p in pilots:
+				if p.playing() and p.invuln <= 0 and a.alive and _overlap(a.pos, a.size * 0.7, Vector2(p.x, PLAYER_Y + 4), Vector2(70, 60)):
+					_damage_alien(a, 99, p)
+					_hit_pilot(p)
 			var hit := _bunker_at(a.pos.x, a.pos.y + a.size.y / 3)
 			if hit.size():
 				_erode(hit[0], a.pos.x, a.pos.y, 30)
@@ -700,26 +1056,27 @@ func _update_aliens(dt: float) -> void:
 
 
 func _update_enemy_fire(dt: float) -> void:
-	if not alive:
+	if not _any_playing():
 		return
 	var fa := aliens.filter(func(a): return a.alive and a.state == "formation")
 	if fa.is_empty():
 		return
 	var frac := 1.0 - float(fa.size()) / total_aliens
-	var rate := lv.fire_rate * float(dm.fire) * (1 + frac * 0.6)
+	var rate := lv.fire_rate * float(dm.fire) * (1 + frac * 0.6) * _difficulty_scale()
 	fire_acc += rate * dt
-	var cap := 12 + level_index * 2
+	var cap := 12 + _level_power() * 2 + 4 * (pilots.size() - 1)
 	while fire_acc >= 1:
 		fire_acc -= 1 + randf_range(-0.3, 0.3)
 		if bullets.filter(func(b): return b.enemy).size() >= cap:
 			continue
+		var tx := _target().x
 		var cols := {}
 		for a in fa:
 			var k := roundi(a.slot.x)
 			if not cols.has(k) or a.slot.y > cols[k].slot.y:
 				cols[k] = a
 		var shooters: Array = cols.values()
-		shooters.sort_custom(func(a, b): return absf(a.pos.x - px) < absf(b.pos.x - px))
+		shooters.sort_custom(func(a, b): return absf(a.pos.x - tx) < absf(b.pos.x - tx))
 		var shooter: Alien = shooters[0] if randf() < 0.45 else shooters.pick_random()
 		var cruisers := fa.filter(func(c): return c.kind == "cruiser")
 		if cruisers.size() and randf() < 0.18:
@@ -737,12 +1094,15 @@ func _alien_shoot(a: Alien, from_dive := false) -> void:
 		b.vel = Vector2(sin(angle), cos(angle)) * speed
 		b.size = Vector2(r * 1.4, r * 1.8)
 		b.tex = _plasma(hue, r)
+		b.r = r
 		b.enemy = true
 		b.hue = hue
 		b.rot = -angle
 		bullets.append(b)
-		Audio.play("alien_shot_heavy" if heavy else "alien_shot")
-	var aim := func() -> float: return clampf(atan2(px - a.pos.x, PLAYER_Y - a.pos.y), -0.6, 0.6)
+		sfx("alien_shot_heavy" if heavy else "alien_shot")
+	var aim := func() -> float:
+		var tp := _target(a.pos.x)
+		return clampf(atan2(tp.x - a.pos.x, PLAYER_Y - a.pos.y), -0.6, 0.6)
 	match "squid" if from_dive else a.kind:
 		"squid":
 			shot.call(aim.call(), bs * 1.05, 9)
@@ -761,7 +1121,7 @@ func _alien_shoot(a: Alien, from_dive := false) -> void:
 
 
 func _update_saucer(dt: float) -> void:
-	if boss != null:
+	if boss != null or (lv.custom and not lv.saucer_enabled):
 		return
 	if saucer == null:
 		saucer_t -= dt
@@ -769,7 +1129,7 @@ func _update_saucer(dt: float) -> void:
 			var dir := 1.0 if randf() < 0.5 else -1.0
 			saucer = {"pos": Vector2(-120 if dir > 0 else W + 120, 92), "dir": dir, "hp": 3, "flash": 0.0}
 			saucer_t = lv.saucer_every * randf_range(0.8, 1.25)
-			Audio.saucer_start()
+			_saucer_sound(true)
 		return
 	saucer.pos.x += saucer.dir * 250 * dt
 	saucer.flash = maxf(0.0, saucer.flash - dt)
@@ -779,27 +1139,27 @@ func _update_saucer(dt: float) -> void:
 
 func _stop_saucer() -> void:
 	if saucer != null:
-		Audio.saucer_stop()
+		_saucer_sound(false)
 	saucer = null
 
 
-func _damage_saucer(dmg: int) -> void:
+func _damage_saucer(dmg: int, p: Pilot) -> void:
 	saucer.hp -= dmg
 	saucer.flash = 0.08
 	if saucer.hp > 0:
-		Audio.play("hit_armor")
-		fx.hit(saucer.pos.x, saucer.pos.y + 10, 310)
+		sfx("hit_armor")
+		fx_hit(saucer.pos.x, saucer.pos.y + 10, 310)
 		return
-	var p: Vector2 = saucer.pos
+	var pos: Vector2 = saucer.pos
 	_stop_saucer()
-	var pts: float = [100, 150, 200, 300].pick_random() * (1 + level_index * 0.25)
+	var pts: float = [100, 150, 200, 300].pick_random() * (1 + _level_power() * 0.25)
 	var val := roundi(pts / 10.0) * 10
-	add_score(val)
-	fx.explosion(p.x, p.y, 310, 1.8)
-	fx.text(p.x, p.y, "+%d" % val, Color("#ff8ae6"), 36, 1.4)
-	Audio.play("explode_big")
+	add_score(p, val)
+	fx_explosion(pos.x, pos.y, 310, 1.8)
+	fx_text(pos.x, pos.y, "+%d" % val, Color("#ff8ae6"), 36, 1.4)
+	sfx("explode_big")
 	add_shake(10)
-	_drop_power(p, true)
+	_drop_power(pos, true)
 
 
 func _update_bullets(dt: float) -> void:
@@ -817,8 +1177,8 @@ func _update_bullets(dt: float) -> void:
 			var hit := _bunker_at(x, y)
 			if hit.size():
 				_erode(hit[0], x, y, (20.0 if b.size.x > 16 else 15.0) if b.enemy else 10.0)
-				fx.dust(x, y, lv.bunker_dust)
-				Audio.play("bunker_hit")
+				fx_dust(x, y, lv.bunker_dust)
+				sfx("bunker_hit")
 				gone = true
 				break
 		if gone:
@@ -827,54 +1187,64 @@ func _update_bullets(dt: float) -> void:
 			if state != "play" and state != "boss_warn":
 				keep.append(b)
 				continue
-			if alive and shield_t > 0 and b.pos.distance_to(Vector2(px, PLAYER_Y)) < 78:
-				fx.hit(b.pos.x, b.pos.y, 210)
-				Audio.play("shield_block")
-				continue
-			if alive and invuln <= 0 and _overlap(b.pos, b.size, Vector2(px, PLAYER_Y + 6), Vector2(54, 54)):
-				_hit_player()
+			var stopped := false
+			for p in pilots:
+				if not p.playing():
+					continue
+				if p.shield_t > 0 and b.pos.distance_to(Vector2(p.x, PLAYER_Y)) < 78:
+					fx_hit(b.pos.x, b.pos.y, 210)
+					sfx("shield_block")
+					stopped = true
+					break
+				if p.invuln <= 0 and _overlap(b.pos, b.size, Vector2(p.x, PLAYER_Y + 6), Vector2(54, 54)):
+					_hit_pilot(p)
+					stopped = true
+					break
+			if stopped:
 				continue
 		else:
+			var shooter: Pilot = pilots[clampi(b.owner, 0, pilots.size() - 1)]
 			var consumed := false
 			for a in aliens:
 				if not a.alive:
 					continue
 				if _overlap(b.pos, b.size, a.pos, a.size * 0.82):
-					_damage_alien(a, b.dmg)
-					fx.hit(b.pos.x, b.pos.y - 10, a.hue)
+					_damage_alien(a, b.dmg, shooter)
+					fx_hit(b.pos.x, b.pos.y - 10, a.hue)
 					consumed = true
 					break
 			if consumed:
 				continue
 			if saucer != null and _overlap(b.pos, b.size, saucer.pos, Vector2(170, 56)):
-				_damage_saucer(b.dmg)
+				_damage_saucer(b.dmg, shooter)
 				continue
 			if boss != null and boss.state == "fight":
 				var dx: float = (b.pos.x - boss.x) / 230.0
 				var dy: float = (b.pos.y - (boss.y - 10)) / 150.0
 				if dx * dx + dy * dy < 1:
-					_damage_boss(b.dmg, b.pos.x, b.pos.y)
+					_damage_boss(b.dmg, b.pos.x, b.pos.y, shooter)
 					continue
 		keep.append(b)
 	bullets = keep
 
 
-func _damage_alien(a: Alien, dmg: int) -> void:
+func _damage_alien(a: Alien, dmg: int, p: Pilot) -> void:
 	if not a.alive:
 		return
 	a.hp -= dmg
 	a.flash = 0.09
 	if a.hp > 0:
-		Audio.play("hit_armor")
+		sfx("hit_armor")
 		return
 	a.alive = false
 	var big := a.kind == "cruiser"
-	var mult := 1 + level_index * 0.1
+	var mult := 1 + _level_power() * 0.1
 	var pts := roundi(a.score * mult / 5.0) * 5
-	add_score(pts)
-	fx.explosion(a.pos.x, a.pos.y, a.hue, 1.8 if big else (1.15 if a.kind in ["beetle", "wraith"] else 0.9))
-	fx.text(a.pos.x, a.pos.y - 10, str(pts), UI.hsl(a.hue, 100, 80), 32 if big else 22, 0.8)
-	Audio.play("explode_big" if big else "explode_small")
+	add_score(p, pts)
+	fx_explosion(a.pos.x, a.pos.y, a.hue, 1.8 if big else (1.15 if a.kind in ["beetle", "wraith"] else 0.9))
+	var tc := UI.hsl(a.hue, 100, 80) if not multi() else Global.ship_color(p.color, 75)
+	fx_text(a.pos.x, a.pos.y - 10, str(pts), tc, 32 if big else 22, 0.8)
+	sfx("explode_big" if big else "explode_small")
 	if big:
 		add_shake(8)
 	if a.state != "minion":
@@ -882,16 +1252,22 @@ func _damage_alien(a: Alien, dmg: int) -> void:
 
 
 func _drop_power(pos: Vector2, guaranteed: bool, big := false) -> void:
-	if powers.size() >= 3 and not guaranteed:
+	if powers.size() >= 3 + pilots.size() - 1 and not guaranteed:
 		return
 	var chance := (0.5 if big else 0.075) * float(dm.drop)
 	if not guaranteed and randf() > chance:
 		return
 	var opts := [["dual", 22], ["speed", 16], ["shield", 15], ["bomb", 13], ["rapid", 16]]
-	if level_index >= 2:
+	if _level_power() >= 2:
 		opts.append(["spread", 12])
-	if lives < 6:
-		opts.append(["life", 6 if guaranteed else 3])
+	var anyone_down := false
+	var min_lives := 99
+	for p in pilots:
+		if not p.left:
+			min_lives = mini(min_lives, p.lives)
+			anyone_down = anyone_down or p.out()
+	if min_lives < 6:
+		opts.append(["life", (12 if anyone_down else (6 if guaranteed else 3))])
 	var total := 0.0
 	for o in opts:
 		total += o[1]
@@ -911,71 +1287,94 @@ func _update_powers(dt: float) -> void:
 		p[1].y += p[2] * dt
 		p[1].x += sin(p[3] * 3) * 20 * dt
 	var keep := []
-	for p in powers:
-		if p[1].y > H + 50:
+	for pw in powers:
+		if pw[1].y > H + 50:
 			continue
-		if alive and _overlap(p[1], Vector2(60, 60), Vector2(px, PLAYER_Y), Vector2(100, 80)):
-			_collect(p[0])
-			continue
-		keep.append(p)
+		var taken := false
+		for p in pilots:
+			if p.playing() and _overlap(pw[1], Vector2(60, 60), Vector2(p.x, PLAYER_Y), Vector2(100, 80)):
+				_collect(p, pw[0])
+				taken = true
+				break
+		if not taken:
+			keep.append(pw)
 	powers = keep
 
 
-func _collect(k: String) -> void:
+func _collect(p: Pilot, k: String) -> void:
 	var info: Array = POWER_INFO[k]
+	var label: String = info[0]
 	match k:
 		"dual":
-			weapon = "dual"
-			weapon_t = 15
+			p.weapon = "dual"
+			p.weapon_t = 15
 		"spread":
-			weapon = "spread"
-			weapon_t = 15
+			p.weapon = "spread"
+			p.weapon_t = 15
 		"rapid":
-			rapid_t = 12
+			p.rapid_t = 12
 		"speed":
-			speed_t = 12
+			p.speed_t = 12
 		"shield":
-			shield_t = 10
+			p.shield_t = 10
 		"bomb":
-			bombs = mini(3, bombs + 1)
+			p.bombs = mini(3, p.bombs + 1)
 		"life":
-			lives = mini(7, lives + 1)
-	Audio.play("pu_" + k)
-	add_score(50)
-	fx.text(px, PLAYER_Y - 90, info[0], UI.hsl(info[1], 100, 72), 30, 1.3)
-	fx.add(FxSystem.K.RING, px, PLAYER_Y, {"life": 0.5, "size": 20, "grow": 300, "hue": info[1], "light": 70})
+			## Co-op: an Extra Ship brings a downed wingmate back first.
+			var revived: Pilot = null
+			for q in pilots:
+				if q != p and q.out() and not q.left:
+					revived = q
+					break
+			if revived:
+				revived.lives = 1
+				revived.respawn_t = 0.6
+				label = "%s IS BACK!" % revived.name.to_upper()
+			else:
+				p.lives = mini(7, p.lives + 1)
+	sfx("pu_" + k)
+	add_score(p, 50)
+	fx_text(p.x, PLAYER_Y - 90, label, UI.hsl(info[1], 100, 72), 30, 1.3)
+	fx_add(FxSystem.K.RING, p.x, PLAYER_Y, {"life": 0.5, "size": 20, "grow": 300, "hue": info[1], "light": 70})
 
 
-func _hit_player() -> void:
-	if not alive or invuln > 0 or debug_god:
+func _hit_pilot(p: Pilot) -> void:
+	if not p.playing() or p.invuln > 0 or debug_god:
 		return
-	if shield_t > 0:
-		Audio.play("shield_block")
+	if p.shield_t > 0:
+		sfx("shield_block")
 		return
-	_kill_player()
+	_kill_pilot(p)
 
 
-func _kill_player() -> void:
-	if not alive:
+func _kill_pilot(p: Pilot) -> void:
+	if not p.alive:
 		return
-	alive = false
-	lives -= 1
-	fx.explosion(px, PLAYER_Y, 190, 2.2)
-	fx.explosion(px, PLAYER_Y, 30, 1.2)
-	Audio.play("player_hit")
+	p.alive = false
+	p.lives -= 1
+	fx_explosion(p.x, PLAYER_Y, Global.SHIP_COLORS[p.color][2] if multi() else 190.0, 2.2)
+	fx_explosion(p.x, PLAYER_Y, 30, 1.2)
+	sfx("player_hit")
 	add_shake(22)
-	flash_a = maxf(flash_a, 0.35)
-	weapon = "single"
-	weapon_t = 0
-	rapid_t = 0
-	speed_t = 0
-	shield_t = 0
-	lasers.clear()
-	if lives <= 0:
+	set_flash(0.35)
+	p.weapon = "single"
+	p.weapon_t = 0
+	p.rapid_t = 0
+	p.speed_t = 0
+	p.shield_t = 0
+	if multi() and p.lives <= 0:
+		fx_text(p.x, PLAYER_Y - 120, "%s IS OUT" % p.name.to_upper(), Global.ship_color(p.color, 75), 30, 2.0)
+	var all_out := true
+	for q in pilots:
+		all_out = all_out and q.out()
+	if all_out:
+		lasers.clear()
 		schedule(1.6, _game_over)
 	else:
-		respawn_t = 1.5
-		bullets.assign(bullets.filter(func(b): return not b.enemy or b.pos.y < PLAYER_Y - 400))
+		p.respawn_t = 1.5
+		if not multi():
+			lasers.clear()
+			bullets.assign(bullets.filter(func(b): return not b.enemy or b.pos.y < PLAYER_Y - 400))
 
 
 func _check_progress() -> void:
@@ -991,11 +1390,11 @@ func _check_progress() -> void:
 		if boss == null:
 			state = "boss_warn"
 			state_t = 0
-			Audio.play("boss_warn")
-			Audio.play_music(Audio.music("boss"))
+			sfx("boss_warn")
+			_music(Audio.music("boss"))
 			_stop_saucer()
 		return
-	if not alive:
+	if not _any_playing():
 		return
 	_level_cleared()
 
@@ -1003,17 +1402,20 @@ func _check_progress() -> void:
 func _level_cleared() -> void:
 	state = "cleared"
 	state_t = 0
-	clear_bonus = 1000 * (level_index + 1) + lives * 250
+	var lives := 0
+	for p in pilots:
+		lives += maxi(p.lives, 0)
+	clear_bonus = 1000 * (_level_power() + 1) + lives * 250
 	_stop_saucer()
-	Audio.play("level_clear")
-	Audio.play_music(null)
-	if level_index + 1 >= Global.levels.size():
+	sfx("level_clear")
+	_music(null)
+	if lv.custom or level_index + 1 >= Global.levels.size():
 		_victory()
 
 
 # ---------------------------------------------------------------- boss
 func _spawn_boss() -> void:
-	var hp := roundi(180 * float(dm.boss_hp))
+	var hp := roundi(180 * float(dm.boss_hp) * (1.0 + 0.6 * (pilots.size() - 1)))
 	boss = {"x": W / 2, "y": -260.0, "hp": hp, "max_hp": hp, "t": 0.0, "phase": 1, "flash": 0.0, "state": "enter",
 		"attack_t": 2.5, "attack_idx": 0, "dying_t": 0.0, "boom_t": 0.0, "eye": Vector2.ZERO, "bomb_hit": -1}
 
@@ -1024,19 +1426,21 @@ func _update_boss(dt: float) -> void:
 	var b: Dictionary = boss
 	b.t += dt
 	b.flash = maxf(0.0, b.flash - dt)
-	var target := Vector2(clampf((px - b.x) / 18.0, -22, 22), clampf((PLAYER_Y - b.y) / 60.0, 4, 14))
+	var watch := _target(b.x)
+	var target := Vector2(clampf((watch.x - b.x) / 18.0, -22, 22), clampf((PLAYER_Y - b.y) / 60.0, 4, 14))
 	b.eye += (target - b.eye) * dt * 6
 	for l in lasers:
 		l.t += dt
 	lasers = lasers.filter(func(l): return l.t < l.warn + l.dur)
 	for l in lasers:
-		if l.t >= l.warn and alive and invuln <= 0 and absf(l.x - px) < 58:
-			if shield_t > 0:
-				if randf() < dt * 10:
-					Audio.play("shield_block")
-			else:
-				_hit_player()
 		if l.t >= l.warn:
+			for p in pilots:
+				if p.playing() and p.invuln <= 0 and absf(l.x - p.x) < 58:
+					if p.shield_t > 0:
+						if randf() < dt * 10:
+							sfx("shield_block")
+					else:
+						_hit_pilot(p)
 			var y := BUNKER_Y - BUNKER_H / 2.0
 			while y < BUNKER_Y + BUNKER_H / 2.0:
 				var h := _bunker_at(l.x, y)
@@ -1048,7 +1452,7 @@ func _update_boss(dt: float) -> void:
 		if b.t > 3:
 			b.state = "fight"
 			b.t = 0.0
-			fx.text(W / 2, 520, "EREBUS, THE VOID SOVEREIGN", Color("#d6a0ff"), 46, 2.4)
+			fx_text(W / 2, 520, "EREBUS, THE VOID SOVEREIGN", Color("#d6a0ff"), 46, 2.4)
 		return
 	if b.state == "dying":
 		b.dying_t += dt
@@ -1056,17 +1460,21 @@ func _update_boss(dt: float) -> void:
 		b.x += sin(b.dying_t * 40) * 2
 		if b.boom_t <= 0:
 			b.boom_t = 0.11
-			fx.explosion(b.x + randf_range(-220, 220), b.y + randf_range(-120, 120), randf_range(260, 360), randf_range(0.8, 1.6))
-			Audio.play("explode_big")
+			fx_explosion(b.x + randf_range(-220, 220), b.y + randf_range(-120, 120), randf_range(260, 360), randf_range(0.8, 1.6))
+			sfx("explode_big")
 			add_shake(10)
 		if b.dying_t > 3.2:
-			fx.explosion(b.x, b.y, 300, 5)
-			fx.explosion(b.x, b.y, 40, 3.5)
-			Audio.play("explode_huge")
-			flash_a = 1.0
+			fx_explosion(b.x, b.y, 300, 5)
+			fx_explosion(b.x, b.y, 40, 3.5)
+			sfx("explode_huge")
+			set_flash(1.0)
 			add_shake(40)
-			add_score(10000)
-			fx.text(b.x, b.y, "+10,000", Color("#ffe36b"), 56, 2.5)
+			## everyone still in the fight shares the kill
+			var share := 10000 / maxi(1, pilots.filter(func(q): return not q.out()).size())
+			for p in pilots:
+				if not p.out():
+					add_score(p, share)
+			fx_text(b.x, b.y, "+10,000", Color("#ffe36b"), 56, 2.5)
 			boss = null
 			lasers.clear()
 			bullets.assign(bullets.filter(func(q): return not q.enemy))
@@ -1076,12 +1484,12 @@ func _update_boss(dt: float) -> void:
 	b.x = W / 2 + sin(b.t * sp) * 560
 	b.y = 270 + sin(b.t * sp * 2.1) * (50 if b.phase == 2 else 25)
 	b.attack_t -= dt
-	if b.attack_t <= 0 and alive:
+	if b.attack_t <= 0 and _any_playing():
 		var attacks := ["radial", "aimed", "lasers", "minions", "spiral"]
 		var atk: String = attacks[b.attack_idx % attacks.size()]
 		b.attack_idx += 1
 		_boss_attack(atk)
-		b.attack_t = (1.7 if b.phase == 2 else 2.6) / sqrt(float(dm.fire))
+		b.attack_t = (1.7 if b.phase == 2 else 2.6) / sqrt(float(dm.fire)) / sqrt(_difficulty_scale())
 
 
 func _boss_shot(angle: float, speed: float, r := 11, hue := 300.0) -> void:
@@ -1092,6 +1500,7 @@ func _boss_shot(angle: float, speed: float, r := 11, hue := 300.0) -> void:
 	b.vel = Vector2(sin(angle), cos(angle)) * speed
 	b.size = Vector2(r * 1.4, r * 1.8)
 	b.tex = _plasma(hue, r)
+	b.r = r
 	b.enemy = true
 	b.hue = hue
 	b.rot = -angle
@@ -1110,35 +1519,42 @@ func _boss_attack(kind: String) -> void:
 						return
 					for i in n:
 						_boss_shot(float(i) / n * TAU + k * 0.15, bs, 11, 290)
-					Audio.play("alien_shot_heavy"))
+					sfx("alien_shot_heavy"))
 		"aimed":
 			for i in (6 if p2 else 4):
 				schedule(i * 0.2, func():
 					if boss == null:
 						return
-					var ang := atan2(px - boss.x, PLAYER_Y - boss.y - 60)
+					var tp := _target()
+					var ang := atan2(tp.x - boss.x, PLAYER_Y - boss.y - 60)
 					for o in [-0.18, 0.0, 0.18]:
 						_boss_shot(ang + o, bs * 1.5, 10, 330)
-					Audio.play("alien_shot"))
+					sfx("alien_shot"))
 		"lasers":
-			var xs := [px, clampf(px + [-1, 1].pick_random() * randf_range(250, 450), 80, W - 80)]
+			var tp := _target()
+			var xs := [tp.x, clampf(tp.x + [-1, 1].pick_random() * randf_range(250, 450), 80, W - 80)]
 			if p2:
 				xs.append(randf_range(100, W - 100))
+			if multi():
+				var other := _target()
+				if other != tp:
+					xs.append(other.x)
 			for x in xs:
 				lasers.append({"x": x, "t": 0.0, "warn": 0.85 if p2 else 1.1, "dur": 1.1})
-			Audio.play("boss_laser_charge")
+			sfx("boss_laser_charge")
 			schedule(0.85 if p2 else 1.1, func():
 				if boss != null:
-					Audio.play("boss_laser")
+					sfx("boss_laser")
 					add_shake(8))
 		"minions":
-			var n := 4 if p2 else 3
+			var n := (4 if p2 else 3) + (pilots.size() - 1)
 			for i in n:
 				var m := _make_alien("squid" if i % 2 else "drone", Vector2.ZERO, "minion")
 				m.pos = Vector2(boss.x + (i - (n - 1) / 2.0) * 120, boss.y + 80)
 				m.vel = Vector2((i - (n - 1) / 2.0) * 150, -120)
+				m.target = _target().idx
 				aliens.append(m)
-			fx.explosion(boss.x, boss.y + 80, 280, 1)
+			fx_explosion(boss.x, boss.y + 80, 280, 1)
 		"spiral":
 			var n := 34 if p2 else 24
 			for i in n:
@@ -1149,25 +1565,25 @@ func _boss_attack(kind: String) -> void:
 					_boss_shot(a, bs * 0.9, 9, 270)
 					_boss_shot(a + PI, bs * 0.9, 9, 270)
 					if i % 3 == 0:
-						Audio.play("alien_shot"))
+						sfx("alien_shot"))
 
 
-func _damage_boss(dmg: int, x: float, y: float) -> void:
+func _damage_boss(dmg: int, x: float, y: float, p: Pilot) -> void:
 	var b: Dictionary = boss
 	if b.state != "fight":
 		return
 	b.hp -= dmg
 	b.flash = 0.06
-	add_score(10 * dmg)
-	fx.hit(x, y, 300)
-	Audio.play("hit_armor")
+	add_score(p, 10 * dmg)
+	fx_hit(x, y, 300)
+	sfx("hit_armor")
 	if b.phase == 1 and b.hp <= b.max_hp / 2.0:
 		b.phase = 2
 		b.attack_t = 1.2
-		fx.text(W / 2, 560, "EREBUS IS ENRAGED!", Color("#ff5a7a"), 52, 2)
-		Audio.play("boss_warn")
+		fx_text(W / 2, 560, "EREBUS IS ENRAGED!", Color("#ff5a7a"), 52, 2)
+		sfx("boss_warn")
 		add_shake(16)
-		flash_a = 0.4
+		set_flash(0.4)
 	if b.hp <= 0:
 		b.hp = 0
 		b.state = "dying"
@@ -1176,7 +1592,7 @@ func _damage_boss(dmg: int, x: float, y: float) -> void:
 		lasers.clear()
 		bullets.assign(bullets.filter(func(q): return not q.enemy))
 		aliens.assign(aliens.filter(func(a): return a.state != "minion"))
-		Audio.play_music(null)
+		_music(null)
 
 
 # ---------------------------------------------------------------- endings
@@ -1185,42 +1601,305 @@ func _game_over() -> void:
 	state_t = 0
 	end_shown = false
 	_stop_saucer()
-	new_high = Global.submit_score(score)
-	Audio.play_music(null)
-	Audio.play("game_over")
+	if mode == "single" and not lv.custom:
+		new_high = Global.submit_score(pilots[0].score)
+	_music(null)
+	sfx("game_over")
 
 
 func _victory() -> void:
 	state = "victory"
 	state_t = 0
 	end_shown = false
-	add_score(clear_bonus)
-	clear_bonus = 0
-	new_high = Global.submit_score(score)
-	Global.clear_game()
-	Audio.play("victory")
+	_award_clear_bonus()
+	if mode == "single" and not lv.custom:
+		new_high = Global.submit_score(pilots[0].score)
+		Global.clear_game()
+	sfx("victory")
+
+
+func _restart_start(level: int) -> Dictionary:
+	var s := start_info.duplicate(true)
+	s.level = level
+	if mode == "single":
+		s.lives = Global.DIFFICULTY[diff].lives
+		s.score = checkpoint.get("score", 0) if not lv.custom else 0
+		s.bombs = checkpoint.get("bombs", 1) if not lv.custom else 1
+	return s
 
 
 func _show_end_menu() -> void:
 	end_shown = true
+	for c in end_menu.get_children():
+		c.queue_free()
 	var items := []
-	var y := 640.0
-	if state == "gameover":
-		items.append(["Retry Planet", func():
-			var start := checkpoint.duplicate()
-			start.lives = Global.DIFFICULTY[diff].lives
-			Global.start_game(start)])
+	var y := 700.0 if multi() else 640.0
+	var again := "Retry Map" if lv.custom else ("Retry Planet" if state == "gameover" else "")
+	if is_guest():
+		items.append(["Leave Game", Global.goto_menu])
 	else:
-		y = 760.0
-	items.append(["Main Menu", Global.goto_menu])
+		if again != "":
+			items.append([again, func():
+				var s := _restart_start(level_index)
+				if role == "host":
+					Net.start_game(s)
+				Global.start_game(s)])
+		if from_editor:
+			items.append(["Back to Editor", func(): Global.goto_scene("res://scenes/editor.tscn")])
+		if role == "host":
+			items.append(["Back to Lobby", func():
+				Net.back_to_lobby()
+				Global.lobby_memory["tab"] = "online"
+				Global.goto_scene("res://scenes/lobby.tscn")])
+		items.append(["Main Menu", Global.goto_menu])
+	if state == "victory":
+		y = 820.0 if multi() else 780.0
 	var buttons := []
 	for i in items.size():
-		var b := GameButton.make(items[i][0], items[i][1], 520, 70)
-		b.position = Vector2(960 - 260, y + i * 86)
+		var b := GameButton.make(items[i][0], items[i][1], 520, 66)
+		b.position = Vector2(960 - 260, y + i * 80)
 		end_menu.add_child(b)
 		buttons.append(b)
 	GameButton.link_vertical(buttons)
 	buttons[0].focus_quietly()
+
+
+# ---------------------------------------------------------------- online: host side
+func _host_send(dt: float) -> void:
+	_snap_t += dt
+	_bunker_t += dt
+	if _snap_t < SNAP_RATE:
+		return
+	_snap_t = 0.0
+	if _bunker_t > 0.1:
+		_bunker_t = 0.0
+		for i in bunkers.size():
+			if not bunkers[i].sent:
+				bunkers[i].sent = true
+				_events.append(["bunk", i, bunkers[i].mask])
+	if _events.size():
+		Net.send_all({"t": "ev", "e": _events})
+		_events = []
+	Net.send_all(_snapshot(), false)
+
+
+func _snapshot() -> Dictionary:
+	var pf := PackedFloat32Array()
+	for p in pilots:
+		pf.append_array([p.x, p.vx, 1.0 if p.alive else 0.0, p.invuln, p.shield_t, p.speed_t, WEAPONS.find(p.weapon), p.weapon_t,
+			p.rapid_t, p.lives, p.bombs, p.score, 1.0 if p.left else 0.0])
+	var af := PackedFloat32Array()
+	for a in aliens:
+		if a.alive:
+			var rot := clampf(-a.vel.x / 900.0, -0.5, 0.5) if a.state in ["dive", "minion"] else 0.0
+			af.append_array([KINDS.find(a.kind), a.pos.x, a.pos.y, a.flash, rot, a.hp, a.max_hp])
+	var bf := PackedFloat32Array()
+	for b in bullets:
+		bf.append_array([b.pos.x, b.pos.y, b.vel.x, b.vel.y, b.rot, b.hue, b.r])
+	var wf := PackedFloat32Array()
+	for pw in powers:
+		wf.append_array([POWERS.find(pw[0]), pw[1].x, pw[1].y, pw[3]])
+	var s := {"t": "s", "st": state, "stt": state_t, "af": anim_frame, "cb": clear_bonus, "p": pf, "a": af, "b": bf, "w": wf}
+	if saucer != null:
+		s.sc = PackedFloat32Array([saucer.pos.x, saucer.pos.y, saucer.flash])
+	if boss != null:
+		s.bo = PackedFloat32Array([boss.x, boss.y, boss.hp, boss.max_hp, boss.phase, boss.flash, boss.t, BOSS_STATES.find(boss.state), boss.eye.x, boss.eye.y])
+	if lasers.size():
+		var lf := PackedFloat32Array()
+		for l in lasers:
+			lf.append_array([l.x, l.t, l.warn, l.dur])
+		s.la = lf
+	if wave != null:
+		s.wv = PackedFloat32Array([wave.pos.x, wave.pos.y, wave.r])
+	return s
+
+
+func _on_net_message(m: Dictionary, from: int) -> void:
+	if role == "host" and m.t == "in":
+		for p in pilots:
+			if p.peer_id == from:
+				p.input.remote_axis = float(m.get("a", 0.0))
+				p.input.remote_fire = bool(m.get("f", false))
+				p.input.remote_bombs = int(m.get("b", 0))
+				if p.alive:
+					p.x = clampf(float(m.get("x", p.x)), 70, W - 70)
+	elif is_guest():
+		if m.t == "s":
+			_apply_snapshot(m)
+		elif m.t == "ev":
+			for e in m.e:
+				_apply_event(e)
+
+
+func _on_peer_left(name: String) -> void:
+	for p in pilots:
+		if not p.left and p.peer_id != 0 and p.peer_id != Net.my_id and not _peer_present(p.peer_id):
+			p.left = true
+			p.alive = false
+			if role == "host":
+				fx_text(W / 2, 420, "%s LEFT THE GAME" % name.to_upper(), Global.ship_color(p.color, 75), 36, 2.5)
+	var all_out := true
+	for q in pilots:
+		all_out = all_out and q.out()
+	if all_out and role == "host" and state not in ["gameover", "victory"]:
+		schedule(1.0, _game_over)
+
+
+func _peer_present(id: int) -> bool:
+	for p in Net.players:
+		if p.id == id:
+			return true
+	return false
+
+
+func _on_host_left() -> void:
+	Global.goto_menu()
+	Global.toast("The host left the game.", 3.0)
+
+
+# ---------------------------------------------------------------- online: guest side
+func _guest_setup(start: Dictionary) -> void:
+	level_index = start.get("level", 0)
+	lv = _level_for(level_index)
+	_setup_visuals()
+	state = "intro"
+	state_t = 0.0
+
+
+func _guest_update(dt: float) -> void:
+	state_t += dt
+	var me := pilots[my_idx]
+	_tick_timers(me, dt)
+	if me.playing():
+		_move_pilot(me, dt)
+	if me.input.bomb_pressed():
+		_guest_bombs += 1
+	Net.send_host({"t": "in", "x": me.x, "a": me.input.axis(), "f": me.input.fire(), "b": _guest_bombs}, false)
+	for b in bullets:
+		b.pos += b.vel * dt
+	if state == "intro":
+		_animate(dt, 0.5)
+	if state in ["gameover", "victory"] and state_t > 1.5 and not end_shown:
+		_show_end_menu()
+	if Time.get_ticks_msec() - _last_snap_ms > 12000 and Net.active():
+		_on_host_left()
+
+
+func _apply_snapshot(s: Dictionary) -> void:
+	_last_snap_ms = Time.get_ticks_msec()
+	if s.st != state:
+		state = s.st
+		end_shown = state in ["gameover", "victory"] and end_shown
+	state_t = s.stt
+	anim_frame = s.af
+	clear_bonus = s.cb
+	var pf: PackedFloat32Array = s.p
+	for i in mini(pilots.size(), pf.size() / 13):
+		var p := pilots[i]
+		var o := i * 13
+		var was_alive := p.alive
+		p.alive = pf[o + 2] > 0.5
+		if i != my_idx or not p.alive or not was_alive:
+			p.x = pf[o]
+			p.vx = pf[o + 1]
+		p.invuln = pf[o + 3]
+		p.shield_t = pf[o + 4]
+		p.speed_t = pf[o + 5]
+		p.weapon = WEAPONS[clampi(int(pf[o + 6]), 0, 2)]
+		p.weapon_t = pf[o + 7]
+		p.rapid_t = pf[o + 8]
+		p.lives = int(pf[o + 9])
+		p.bombs = int(pf[o + 10])
+		p.score = int(pf[o + 11])
+		p.left = pf[o + 12] > 0.5
+	aliens.clear()
+	var af: PackedFloat32Array = s.a
+	for i in af.size() / 7:
+		var o := i * 7
+		var a := _make_alien(KINDS[clampi(int(af[o]), 0, 5)], Vector2.ZERO)
+		a.pos = Vector2(af[o + 1], af[o + 2])
+		a.flash = af[o + 3]
+		a.rot = af[o + 4]
+		a.hp = int(af[o + 5])
+		a.max_hp = int(af[o + 6])
+		aliens.append(a)
+	bullets.clear()
+	var bf: PackedFloat32Array = s.b
+	for i in bf.size() / 7:
+		var o := i * 7
+		var b := Bullet.new()
+		b.pos = Vector2(bf[o], bf[o + 1])
+		b.vel = Vector2(bf[o + 2], bf[o + 3])
+		b.rot = bf[o + 4]
+		b.hue = bf[o + 5]
+		b.r = int(bf[o + 6])
+		b.enemy = b.r > 0
+		b.tex = _plasma(b.hue, b.r) if b.enemy else TEX_LASER
+		bullets.append(b)
+	powers.clear()
+	var wf: PackedFloat32Array = s.w
+	for i in wf.size() / 4:
+		var o := i * 4
+		powers.append([POWERS[clampi(int(wf[o]), 0, POWERS.size() - 1)], Vector2(wf[o + 1], wf[o + 2]), 0.0, wf[o + 3]])
+	saucer = null
+	if s.has("sc"):
+		saucer = {"pos": Vector2(s.sc[0], s.sc[1]), "flash": s.sc[2]}
+	boss = null
+	if s.has("bo"):
+		var bo: PackedFloat32Array = s.bo
+		boss = {"x": bo[0], "y": bo[1], "hp": bo[2], "max_hp": bo[3], "phase": int(bo[4]), "flash": bo[5], "t": bo[6],
+			"state": BOSS_STATES[clampi(int(bo[7]), 0, 2)], "eye": Vector2(bo[8], bo[9])}
+	lasers.clear()
+	if s.has("la"):
+		var lf: PackedFloat32Array = s.la
+		for i in lf.size() / 4:
+			lasers.append({"x": lf[i * 4], "t": lf[i * 4 + 1], "warn": lf[i * 4 + 2], "dur": lf[i * 4 + 3]})
+	wave = null
+	if s.has("wv"):
+		wave = {"pos": Vector2(s.wv[0], s.wv[1]), "r": s.wv[2]}
+
+
+func _apply_event(e: Array) -> void:
+	match e[0]:
+		"sfx":
+			Audio.play(e[1])
+		"music":
+			Audio.play_music(load(e[1]) if e[1] != "" else null)
+		"saucer":
+			if e[1]:
+				Audio.saucer_start()
+			else:
+				Audio.saucer_stop()
+		"ex":
+			fx.explosion(e[1], e[2], e[3], e[4])
+		"hit":
+			fx.hit(e[1], e[2], e[3])
+		"dust":
+			fx.dust(e[1], e[2], e[3])
+		"txt":
+			fx.text(e[1], e[2], e[3], e[4], e[5], e[6])
+		"fx":
+			fx.add(e[1], e[2], e[3], e[4])
+		"flash":
+			flash_a = maxf(flash_a, e[1])
+		"shake":
+			if Global.settings.shake:
+				shake = maxf(shake, e[1])
+		"level":
+			if level_index != e[1] or lv == null:
+				level_index = e[1]
+				lv = _level_for(level_index)
+				_setup_visuals()
+			end_shown = false
+			for c in end_menu.get_children():
+				c.queue_free()
+		"bunk":
+			if e[1] < bunkers.size():
+				var b := bunkers[e[1]]
+				var m: PackedByteArray = e[2]
+				for i in mini(m.size(), b.mask.size()):
+					if b.mask[i] and not m[i]:
+						_clear_cell(b, i)
 
 
 # ---------------------------------------------------------------- drawing
@@ -1259,7 +1938,9 @@ func _draw_actors() -> void:
 	for a in aliens:
 		if not a.alive:
 			continue
-		var rot := clampf(-a.vel.x / 900.0, -0.5, 0.5) if a.state in ["dive", "minion"] else 0.0
+		var rot := a.rot
+		if not is_guest():
+			rot = clampf(-a.vel.x / 900.0, -0.5, 0.5) if a.state in ["dive", "minion"] else 0.0
 		UI.draw_sprite(ci, a.flash_tex[anim_frame] if a.flash > 0 else a.tex[anim_frame], a.pos, 1.0, rot)
 		if a.max_hp > 1 and a.hp < a.max_hp:
 			var w := a.size.x * 0.6
@@ -1279,28 +1960,40 @@ func _draw_bullets() -> void:
 		UI.draw_sprite(ci, b.tex, b.pos, 1.0, b.rot)
 
 
+func _blinking(p: Pilot) -> bool:
+	return p.invuln > 0 and int(time * 14) % 2 == 0
+
+
 func _draw_flames() -> void:
-	if not alive or (invuln > 0 and int(time * 14) % 2 == 0):
-		return
 	var ci: CanvasItem = $World/Flames
-	var ln := (60.0 if speed_t > 0 else 34.0) + randf() * 10
-	var c := UI.hsl(45 if speed_t > 0 else 195, 100, 65)
-	for s in [-7.0, 7.0]:
-		ci.draw_texture_rect(TEX_FLAME, Rect2(px + s - 5, PLAYER_Y + 40, 10, ln * 1.05), false, c.lerp(Color.WHITE, 0.2))
+	for p in pilots:
+		if not p.playing() or _blinking(p):
+			continue
+		var ln := (60.0 if p.speed_t > 0 else 34.0) + randf() * 10
+		var c := UI.hsl(45 if p.speed_t > 0 else 195, 100, 65)
+		if multi() and p.speed_t <= 0:
+			c = Global.ship_color(p.color, 65)
+		for s in [-7.0, 7.0]:
+			ci.draw_texture_rect(TEX_FLAME, Rect2(p.x + s - 5, PLAYER_Y + 40, 10, ln * 1.05), false, c.lerp(Color.WHITE, 0.2))
 
 
 func _draw_player() -> void:
-	if not alive or (invuln > 0 and int(time * 14) % 2 == 0):
-		return
-	UI.draw_sprite($World/Player, TEX_PLAYER, Vector2(px, PLAYER_Y), 1.0, clampf(pvx / 4000.0, -0.14, 0.14))
+	var ci: CanvasItem = $World/Player
+	for p in pilots:
+		if not p.playing() or _blinking(p):
+			continue
+		UI.draw_sprite(ci, p.tex, Vector2(p.x, PLAYER_Y), 1.0, clampf(p.vx / 4000.0, -0.14, 0.14))
+		if multi():
+			_txt(ci, p.name, p.x, PLAYER_Y + 76, 16, "extrabold", Global.ship_color(p.color, 78), HORIZONTAL_ALIGNMENT_CENTER, 1)
 
 
 func _draw_shield() -> void:
-	if not alive or shield_t <= 0 or (invuln > 0 and int(time * 14) % 2 == 0):
-		return
-	var fade := (0.4 if int(time * 10) % 2 else 1.0) if shield_t < 2 else 1.0
-	var r := 76 + sin(time * 6) * 3
-	UI.draw_sprite($World/Shield, TEX_SHIELD, Vector2(px, PLAYER_Y), r / 76.0, time * 0.8, Color(1, 1, 1, fade))
+	for p in pilots:
+		if not p.playing() or p.shield_t <= 0 or _blinking(p):
+			continue
+		var fade := (0.4 if int(time * 10) % 2 else 1.0) if p.shield_t < 2 else 1.0
+		var r := 76 + sin(time * 6) * 3
+		UI.draw_sprite($World/Shield, TEX_SHIELD, Vector2(p.x, PLAYER_Y), r / 76.0, time * 0.8, Color(1, 1, 1, fade))
 
 
 func _draw_wave() -> void:
@@ -1331,38 +2024,34 @@ func _txt(ci: CanvasItem, s: String, x: float, y: float, size: int, weight := "b
 	ci.draw_string(f, pos, s, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
 
 
+func _level_title() -> String:
+	if lv.custom:
+		return "CUSTOM MAP  ·  %s" % lv.planet.to_upper()
+	return "PLANET %d/9  ·  %s" % [level_index + 1, lv.planet.to_upper()]
+
+
+func _actives(p: Pilot) -> Array:
+	var actives := []
+	if p.weapon_t > 0:
+		actives.append(["spread" if p.weapon == "spread" else "dual", p.weapon_t, 15.0])
+	if p.rapid_t > 0:
+		actives.append(["rapid", p.rapid_t, 12.0])
+	if p.speed_t > 0:
+		actives.append(["speed", p.speed_t, 12.0])
+	if p.shield_t > 0:
+		actives.append(["shield", p.shield_t, 10.0])
+	return actives
+
+
 func _draw_hud() -> void:
 	var ci := hud
 	ci.draw_texture_rect(TEX_HUD_TOP, Rect2(0, 0, W, 70), false)
-	_txt(ci, "SCORE", 36, 26, 16, "extrabold", Color("#8fc8ff"), HORIZONTAL_ALIGNMENT_LEFT, 4)
-	_txt(ci, UI.format_score(score), 36, 54, 32, "extrabold", Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, 0, Color(0.4, 0.78, 1, 0.6), 8)
-	_txt(ci, "HIGH", 300, 26, 16, "extrabold", Color("#ffd76b"), HORIZONTAL_ALIGNMENT_LEFT, 4)
-	_txt(ci, UI.format_score(hi_score), 300, 54, 26, "bold", Color("#ffe9a8"))
-	_txt(ci, "PLANET %d/9  ·  %s" % [level_index + 1, lv.planet.to_upper()], W / 2, 34, 24, "extrabold", Color("#dfe9ff"), HORIZONTAL_ALIGNMENT_CENTER, 5)
-	for i in mini(lives, 7):
-		UI.draw_sprite(ci, TEX_PLAYER, Vector2(W - 52 - i * 46, 38), 0.36)
-	for i in bombs:
-		UI.draw_sprite(ci, TEX_HUD_BOMB, Vector2(W - 52 - i * 40, 88))
-	if bombs > 0:
-		_txt(ci, "B", W - 52 - bombs * 40 + 8, 89, 18, "extrabold", Color("#ffb08a"), HORIZONTAL_ALIGNMENT_CENTER)
-	var actives := []
-	if weapon_t > 0:
-		actives.append(["spread" if weapon == "spread" else "dual", weapon_t, 15.0])
-	if rapid_t > 0:
-		actives.append(["rapid", rapid_t, 12.0])
-	if speed_t > 0:
-		actives.append(["speed", speed_t, 12.0])
-	if shield_t > 0:
-		actives.append(["shield", shield_t, 10.0])
-	for i in actives.size():
-		var k: String = actives[i][0]
-		var x := 36.0
-		var y := H - 60 - i * 58
-		var info: Array = POWER_INFO[k]
-		UI.draw_sprite(ci, _hud_power_tex[k], Vector2(x + 20, y))
-		_txt(ci, info[0], x + 52, y - 9, 16, "extrabold", UI.hsl(info[1], 100, 80), HORIZONTAL_ALIGNMENT_LEFT, 2)
-		ci.draw_texture_rect(TEX_TIMER_TRACK, Rect2(x + 52, y + 6, 160, 6), false)
-		ci.draw_texture_rect(TEX_TIMER_FILL, Rect2(x + 52, y + 6, 160 * actives[i][1] / actives[i][2], 6), false, UI.hsl(info[1], 100, 65))
+	if not multi():
+		_txt(ci, _level_title(), W / 2, 34, 24, "extrabold", Color("#dfe9ff"), HORIZONTAL_ALIGNMENT_CENTER, 5)
+	if multi():
+		_draw_hud_multi(ci)
+	else:
+		_draw_hud_single(ci)
 	if boss != null and boss.state != "enter":
 		var bw := 900.0
 		var bx := W / 2 - bw / 2
@@ -1372,9 +2061,79 @@ func _draw_hud() -> void:
 		var fw := maxf(0.0, (bw - 6) * float(boss.hp) / boss.max_hp)
 		if fw > 0:
 			ci.draw_texture_rect_region(TEX_BOSSBAR_FILL, Rect2(bx + 3, by + 23, fw, 16), Rect2(0, 0, fw, 16))
-	if level_index == 0 and state == "intro":
+	if state == "intro" and level_index == 0 and not lv.custom and not multi():
 		_txt(ci, "←  →  MOVE     ·     SPACE  FIRE     ·     B  NOVA BOMB     ·     ESC  PAUSE", W / 2, H - 28, 20, "bold",
 			Color(0.82, 0.9, 1, 0.85), HORIZONTAL_ALIGNMENT_CENTER, 2)
+
+
+func _draw_hud_single(ci: CanvasItem) -> void:
+	var p := pilots[0]
+	_txt(ci, "SCORE", 36, 26, 16, "extrabold", Color("#8fc8ff"), HORIZONTAL_ALIGNMENT_LEFT, 4)
+	_txt(ci, UI.format_score(p.score), 36, 54, 32, "extrabold", Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, 0, Color(0.4, 0.78, 1, 0.6), 8)
+	if not lv.custom:
+		_txt(ci, "HIGH", 300, 26, 16, "extrabold", Color("#ffd76b"), HORIZONTAL_ALIGNMENT_LEFT, 4)
+		_txt(ci, UI.format_score(hi_score), 300, 54, 26, "bold", Color("#ffe9a8"))
+	for i in mini(p.lives, 7):
+		UI.draw_sprite(ci, p.tex, Vector2(W - 52 - i * 46, 38), 0.36)
+	for i in p.bombs:
+		UI.draw_sprite(ci, TEX_HUD_BOMB, Vector2(W - 52 - i * 40, 88))
+	if p.bombs > 0:
+		_txt(ci, "B", W - 52 - p.bombs * 40 + 8, 89, 18, "extrabold", Color("#ffb08a"), HORIZONTAL_ALIGNMENT_CENTER)
+	var actives := _actives(p)
+	for i in actives.size():
+		var k: String = actives[i][0]
+		var x := 36.0
+		var y := H - 60 - i * 58
+		var info: Array = POWER_INFO[k]
+		UI.draw_sprite(ci, _hud_power_tex[k], Vector2(x + 20, y))
+		_txt(ci, info[0], x + 52, y - 9, 16, "extrabold", UI.hsl(info[1], 100, 80), HORIZONTAL_ALIGNMENT_LEFT, 2)
+		ci.draw_texture_rect(TEX_TIMER_TRACK, Rect2(x + 52, y + 6, 160, 6), false)
+		ci.draw_texture_rect(TEX_TIMER_FILL, Rect2(x + 52, y + 6, 160 * actives[i][1] / actives[i][2], 6), false, UI.hsl(info[1], 100, 65))
+
+
+func _draw_hud_multi(ci: CanvasItem) -> void:
+	_txt(ci, "TEAM SCORE", 36, 22, 15, "extrabold", Color("#8fc8ff"), HORIZONTAL_ALIGNMENT_LEFT, 4)
+	_txt(ci, UI.format_score(team_score()), 36, 48, 30, "extrabold", Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, 0, Color(0.4, 0.78, 1, 0.6), 8)
+	## one card per pilot across the top bar
+	var n := pilots.size()
+	var gap := 14.0
+	var cw := minf(390.0, (1610.0 - gap * (n - 1)) / n)
+	var x0 := 1900.0 - n * cw - (n - 1) * gap
+	for p in pilots:
+		var x := x0 + p.idx * (cw + gap)
+		var y := 6.0
+		var col := Global.ship_color(p.color, 72)
+		if _card_style == null:
+			_card_style = StyleBoxTexture.new()
+			_card_style.texture = TEX_PANEL
+			for side in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
+				_card_style.set_texture_margin(side, 16)
+			_card_style.modulate_color = Color(1, 1, 1, 0.75)
+		ci.draw_style_box(_card_style, Rect2(x, y, cw, 58))
+		ci.draw_rect(Rect2(x + 2, y + 2, 5, 54), col)
+		UI.draw_sprite(ci, p.tex, Vector2(x + 34, y + 29), 0.34, 0.0, Color(1, 1, 1, 0.35) if p.out() else Color.WHITE)
+		var me := mode == "online" and p.idx == my_idx
+		_txt(ci, p.name + ("  (YOU)" if me else ""), x + 64, y + 16, 16, "extrabold", col, HORIZONTAL_ALIGNMENT_LEFT, 1)
+		_txt(ci, UI.format_score(p.score), x + cw - 12, y + 16, 18, "extrabold", Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT)
+		if p.left:
+			_txt(ci, "LEFT THE GAME", x + 64, y + 41, 14, "bold", Color(1, 1, 1, 0.5), HORIZONTAL_ALIGNMENT_LEFT, 2)
+			continue
+		if p.out():
+			_txt(ci, "OUT · Extra Ship revives", x + 64, y + 41, 14, "bold", Color("#ff9aa8"))
+			continue
+		for i in mini(p.lives, 5):
+			UI.draw_sprite(ci, p.tex, Vector2(x + 72 + i * 20, y + 42), 0.15)
+		for i in p.bombs:
+			UI.draw_sprite(ci, TEX_HUD_BOMB, Vector2(x + 178 + i * 22, y + 42), 0.56)
+		## active power-ups: small icons with a draining ring of time on the right of the card
+		var acts := _actives(p)
+		for i in acts.size():
+			var k: String = acts[i][0]
+			var ix := x + cw - 22 - i * 34
+			if ix < x + 250:
+				break
+			UI.draw_sprite(ci, _hud_power_tex[k], Vector2(ix, y + 41), 0.66)
+			ci.draw_texture_rect(TEX_TIMER_FILL, Rect2(ix - 13, y + 55, 26 * acts[i][1] / acts[i][2], 3), false, UI.hsl(POWER_INFO[k][1], 100, 65))
 
 
 func _draw_banners() -> void:
@@ -1384,38 +2143,79 @@ func _draw_banners() -> void:
 		var a := t / 0.4 if t < 0.4 else (maxf(0.0, 1 - (t - 2.7) / 0.5) if t > 2.7 else 1.0)
 		var y := H / 2 - 40
 		ci.draw_texture_rect(TEX_BAND, Rect2(0, y - 130, W, 260), false, Color(1, 1, 1, a))
-		_txt(ci, "PLANET %d OF 9" % (level_index + 1), W / 2, y - 70, 24, "extrabold", Color(0.62, 0.82, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 10)
-		_txt(ci, lv.planet.to_upper(), W / 2, y, 104, "display", Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 22, Color(0.47, 0.78, 1, 0.9 * a), 16)
-		_txt(ci, lv.tagline, W / 2, y + 68, 30, "bold", Color(0.88, 0.93, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 3)
-		_txt(ci, lv.fact, W / 2, y + 112, 22, "medium", Color(0.78, 0.84, 0.94, 0.8 * a), HORIZONTAL_ALIGNMENT_CENTER)
+		if lv.custom:
+			_txt(ci, "CUSTOM MAP", W / 2, y - 70, 24, "extrabold", Color(0.62, 0.82, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 10)
+			_txt(ci, lv.planet.to_upper(), W / 2, y, 80, "display", Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 12, Color(0.47, 0.78, 1, 0.9 * a), 16)
+			_txt(ci, "%d aliens%s" % [total_aliens, "  ·  Boss at the end" if lv.boss else ""], W / 2, y + 68, 28, "bold", Color(0.88, 0.93, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 2)
+		else:
+			_txt(ci, "PLANET %d OF 9" % (level_index + 1), W / 2, y - 70, 24, "extrabold", Color(0.62, 0.82, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 10)
+			_txt(ci, lv.planet.to_upper(), W / 2, y, 104, "display", Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 22, Color(0.47, 0.78, 1, 0.9 * a), 16)
+			_txt(ci, lv.tagline, W / 2, y + 68, 30, "bold", Color(0.88, 0.93, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 3)
+			_txt(ci, lv.fact, W / 2, y + 112, 22, "medium", Color(0.78, 0.84, 0.94, 0.8 * a), HORIZONTAL_ALIGNMENT_CENTER)
+		if multi():
+			var n := pilots.size()
+			for p in pilots:
+				var px := W / 2 + (p.idx - (n - 1) / 2.0) * 280
+				_txt(ci, p.name, px, y + 170, 22, "extrabold", Global.ship_color(p.color, 75) * Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 2)
 	elif state == "boss_warn":
 		ci.draw_rect(Rect2(0, 0, W, H), Color(1, 0, 0.16, 0.08 + 0.08 * sin(t * 12)))
 		if int(t * 4) % 2 == 0:
 			_txt(ci, "WARNING", W / 2, H / 2 - 50, 120, "display", Color("#ff4060"), HORIZONTAL_ALIGNMENT_CENTER, 30, Color(1, 0, 0.19, 0.9), 18)
 		_txt(ci, "A MASSIVE SIGNAL IS APPROACHING", W / 2, H / 2 + 50, 32, "extrabold", Color("#ffb0c0"), HORIZONTAL_ALIGNMENT_CENTER, 8)
-	elif state == "cleared" and level_index + 1 < Global.levels.size():
+	elif state == "cleared" and not lv.custom and level_index + 1 < Global.levels.size():
 		var a := minf(1.0, t * 3)
 		_txt(ci, "%s LIBERATED" % lv.planet.to_upper(), W / 2, H / 2 - 50, 84, "display", Color(0.92, 1, 0.95, a), HORIZONTAL_ALIGNMENT_CENTER, 12, Color(0.47, 1, 0.7, 0.9 * a), 16)
 		if t > 0.6:
-			_txt(ci, "CLEAR BONUS  +" + UI.format_score(clear_bonus), W / 2, H / 2 + 40, 34, "extrabold", Color(1, 0.89, 0.42, a), HORIZONTAL_ALIGNMENT_CENTER, 4)
+			var label := "CLEAR BONUS  +" + UI.format_score(clear_bonus) + ("  EACH" if multi() else "")
+			_txt(ci, label, W / 2, H / 2 + 40, 34, "extrabold", Color(1, 0.89, 0.42, a), HORIZONTAL_ALIGNMENT_CENTER, 4)
 		if t > 1.4:
 			_txt(ci, "Next: " + Global.levels[level_index + 1].planet, W / 2, H / 2 + 100, 28, "bold", Color(0.74, 0.85, 1, a), HORIZONTAL_ALIGNMENT_CENTER)
 	elif state == "gameover":
 		var a := minf(1.0, t * 1.5)
 		ci.draw_rect(Rect2(0, 0, W, H), Color(0.04, 0, 0.024, 0.78 * a))
-		_txt(ci, "GAME OVER", W / 2, 330, 130, "display", Color(1, 0.42, 0.48, a), HORIZONTAL_ALIGNMENT_CENTER, 20, Color(1, 0.13, 0.25, 0.9 * a), 18)
-		_txt(ci, "SCORE  " + UI.format_score(score), W / 2, 470, 40, "extrabold", Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 6)
-		if new_high:
-			_txt(ci, "NEW HIGH SCORE!", W / 2, 540, 32, "extrabold", Color(1, 0.89, 0.42, a), HORIZONTAL_ALIGNMENT_CENTER, 6, Color(1, 0.69, 0, 0.8 * a))
+		_txt(ci, "GAME OVER", W / 2, 300, 130, "display", Color(1, 0.42, 0.48, a), HORIZONTAL_ALIGNMENT_CENTER, 20, Color(1, 0.13, 0.25, 0.9 * a), 18)
+		if multi():
+			_txt(ci, "TEAM SCORE  " + UI.format_score(team_score()), W / 2, 430, 40, "extrabold", Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 6)
+			_draw_scoreboard(ci, 500, a)
+		else:
+			_txt(ci, "SCORE  " + UI.format_score(pilots[0].score), W / 2, 470, 40, "extrabold", Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 6)
+			if new_high:
+				_txt(ci, "NEW HIGH SCORE!", W / 2, 540, 32, "extrabold", Color(1, 0.89, 0.42, a), HORIZONTAL_ALIGNMENT_CENTER, 6, Color(1, 0.69, 0, 0.8 * a))
+		if is_guest() and end_shown:
+			_txt(ci, "Waiting for the host to choose what's next…", W / 2, 660, 24, "bold", Color(0.78, 0.86, 1, 0.8 * a), HORIZONTAL_ALIGNMENT_CENTER)
 	elif state == "victory":
 		var a := minf(1.0, t * 0.8)
 		ci.draw_rect(Rect2(0, 0, W, H), Color(0, 0.024, 0.08, 0.72 * a))
-		_txt(ci, "VICTORY", W / 2, 300, 150, "display", Color(1, 0.96, 0.82, a), HORIZONTAL_ALIGNMENT_CENTER, 26, Color(1, 0.75, 0.25, 0.9 * a), 20)
-		_txt(ci, "The solar system is safe. Every world, from Mercury to Pluto, is free.", W / 2, 420, 30, "bold", Color(0.88, 0.93, 1, a), HORIZONTAL_ALIGNMENT_CENTER)
-		_txt(ci, "FINAL SCORE  " + UI.format_score(score), W / 2, 520, 48, "black", Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 6, Color(0.47, 0.78, 1, 0.8 * a))
-		_txt(ci, "%s difficulty" % Global.DIFFICULTY[diff].label, W / 2, 580, 24, "bold", Color(0.66, 0.77, 0.91, a), HORIZONTAL_ALIGNMENT_CENTER)
-		if new_high:
-			_txt(ci, "NEW HIGH SCORE!", W / 2, 650, 34, "extrabold", Color(1, 0.89, 0.42, a), HORIZONTAL_ALIGNMENT_CENTER, 6, Color(1, 0.69, 0, 0.8 * a))
+		var title := "MAP COMPLETE" if lv.custom else "VICTORY"
+		_txt(ci, title, W / 2, 230, 140 if not lv.custom else 110, "display", Color(1, 0.96, 0.82, a), HORIZONTAL_ALIGNMENT_CENTER, 26, Color(1, 0.75, 0.25, 0.9 * a), 20)
+		var lines: Array = Story.victory_lines(multi()) if not lv.custom else ["%s cleared." % lv.planet]
+		for i in lines.size():
+			_txt(ci, lines[i], W / 2, 340 + i * 40, 28, "bold", Color(0.88, 0.93, 1, a), HORIZONTAL_ALIGNMENT_CENTER)
+		var sy := 360 + lines.size() * 40
+		if multi():
+			_txt(ci, "TEAM SCORE  " + UI.format_score(team_score()), W / 2, sy + 40, 44, "black", Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 6, Color(0.47, 0.78, 1, 0.8 * a))
+			_draw_scoreboard(ci, sy + 100, a)
+		else:
+			_txt(ci, "FINAL SCORE  " + UI.format_score(pilots[0].score), W / 2, sy + 40, 48, "black", Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 6, Color(0.47, 0.78, 1, 0.8 * a))
+			_txt(ci, "%s difficulty" % Global.DIFFICULTY[diff].label, W / 2, sy + 100, 24, "bold", Color(0.66, 0.77, 0.91, a), HORIZONTAL_ALIGNMENT_CENTER)
+			if new_high:
+				_txt(ci, "NEW HIGH SCORE!", W / 2, sy + 150, 34, "extrabold", Color(1, 0.89, 0.42, a), HORIZONTAL_ALIGNMENT_CENTER, 6, Color(1, 0.69, 0, 0.8 * a))
+		if is_guest() and end_shown:
+			_txt(ci, "Waiting for the host to choose what's next…", W / 2, 1000, 24, "bold", Color(0.78, 0.86, 1, 0.8 * a), HORIZONTAL_ALIGNMENT_CENTER)
+
+
+func _draw_scoreboard(ci: CanvasItem, y: float, a: float) -> void:
+	var order := pilots.duplicate()
+	order.sort_custom(func(p, q): return p.score > q.score)
+	var n := order.size()
+	for i in n:
+		var p: Pilot = order[i]
+		var x := W / 2 + (i - (n - 1) / 2.0) * 300
+		UI.draw_sprite(ci, p.tex, Vector2(x, y + 40), 0.5, 0.0, Color(1, 1, 1, a))
+		_txt(ci, p.name, x, y + 100, 24, "extrabold", Global.ship_color(p.color, 75) * Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 1)
+		_txt(ci, UI.format_score(p.score), x, y + 132, 26, "bold", Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER)
+		if i == 0 and n > 1 and p.score > 0:
+			_txt(ci, "TOP GUN", x, y - 6, 16, "extrabold", Color(1, 0.85, 0.4, a), HORIZONTAL_ALIGNMENT_CENTER, 4)
 
 
 # ---------------------------------------------------------------- test hooks (used by tools/autotest.gd only)
@@ -1428,12 +2228,19 @@ func debug_clear_wave() -> void:
 
 func debug_damage_boss(n: int) -> void:
 	if boss != null and boss.state == "fight":
-		_damage_boss(n, boss.x, boss.y)
+		_damage_boss(n, boss.x, boss.y, pilots[0])
 
 
-func debug_give(k: String) -> void:
-	_collect(k)
+func debug_give(k: String, who := 0) -> void:
+	_collect(pilots[who], k)
 
 
 func debug_jump(level: int) -> void:
 	load_level(level)
+
+
+func debug_kill(who: int) -> void:
+	debug_god = false
+	pilots[who].invuln = 0
+	pilots[who].shield_t = 0
+	_kill_pilot(pilots[who])

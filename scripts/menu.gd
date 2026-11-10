@@ -40,21 +40,18 @@ func _build() -> void:
 	if not save.is_empty():
 		items.append(["Continue", func(): Global.start_game(Global.load_game())])
 	items.append(["New Game", _new_game])
+	items.append(["Multiplayer", func(): Global.goto_scene("res://scenes/lobby.tscn")])
+	items.append(["Custom Maps", func(): Global.goto_scene("res://scenes/maps.tscn")])
 	items.append(["Options", func(): OptionsMenu.open()])
-	items.append(["Multiplayer", func(): Global.toast("Multiplayer is coming in a future update!")])
 	items.append(["Credits", func(): InfoScreen.open_credits()])
 	items.append(["Changelog", func(): InfoScreen.open_changelog()])
 	items.append(["Exit", _exit_game])
-	var step := 74.0
-	var y := 372.0 if not save.is_empty() else 400.0
+	var step := 66.0
+	var y := 356.0 if not save.is_empty() else 384.0
 	for i in items.size():
-		var b := GameButton.make(items[i][0], items[i][1], 620, 62)
+		var b := GameButton.make(items[i][0], items[i][1], 620, 56)
 		b.position = Vector2(960 - 310, y + i * step)
-		if items[i][0] == "Multiplayer":
-			b.locked = true
 		_buttons_root.add_child(b)
-		if b.locked:
-			b.add_badge("COMING SOON")
 		_buttons.append(b)
 	GameButton.link_vertical(_buttons)
 	_continue_info = null
@@ -96,7 +93,7 @@ func _choose_difficulty() -> void:
 		var info: Dictionary = Global.DIFFICULTY[d]
 		items.append(["%s  ·  %d ships" % [info.label, info.lives], func():
 			Global.clear_game()
-			Global.start_game({"level": 0, "score": 0, "lives": info.lives, "bombs": 1, "difficulty": d})])
+			Global.start_with_story({"level": 0, "score": 0, "lives": info.lives, "bombs": 1, "difficulty": d}, "single")])
 	items.append(["Back", Dialog.close_top])
 	Dialog.open("Select Difficulty", ["Choose how fierce the invasion will be."], items)
 

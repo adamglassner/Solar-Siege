@@ -103,3 +103,18 @@ static func draw_sprite(ci: CanvasItem, tex: Texture2D, pos: Vector2, scale := 1
 		ci.draw_set_transform(pos, rot, Vector2.ONE)
 		ci.draw_texture_rect(tex, Rect2(-s / 2.0, s), false, mod)
 		ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## Splits text into lines of at most `width` characters (for dialog messages).
+static func wrap(text: String, width := 60) -> Array:
+	var lines := []
+	var line := ""
+	for word in text.split(" ", false):
+		if line != "" and line.length() + 1 + word.length() > width:
+			lines.append(line)
+			line = word
+		else:
+			line = word if line == "" else line + " " + word
+	if line != "":
+		lines.append(line)
+	return lines

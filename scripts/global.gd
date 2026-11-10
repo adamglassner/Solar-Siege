@@ -32,10 +32,25 @@ const FALLBACK_ROWS := [
 	["cruiser", "wraith", "wraith", "beetle", "squid", "crab"],
 ]
 
-var settings := {"master": 0.8, "music": 0.55, "sfx": 0.8, "fullscreen": false, "shake": true, "show_fps": false}
+## Ship colours players can pick in multiplayer: [id, label, hue for HUD and effects, saturation].
+const SHIP_COLORS := [
+	["blue", "Blue", 205.0, 90.0], ["red", "Red", 350.0, 90.0], ["green", "Green", 110.0, 80.0], ["gold", "Gold", 50.0, 95.0],
+	["purple", "Purple", 285.0, 85.0], ["orange", "Orange", 25.0, 100.0], ["teal", "Teal", 170.0, 80.0], ["silver", "Silver", 215.0, 12.0],
+]
+
+var settings := {"master": 0.8, "music": 0.55, "sfx": 0.8, "fullscreen": false, "shake": true, "show_fps": false,
+	"name": "", "color": 0, "last_host": ""}
+var _ship_tex := {}
 var levels: Array[LevelData] = []
 ## Parameters for the next PlayScene (level, score, lives, bombs, difficulty).
 var play_start := {}
+## Which story to show in the story scene: "single", "multi" or "online".
+var story_kind := "single"
+## Map open in the Level Editor (kept while test-playing it), and its file.
+var editor_map := {}
+var editor_path := ""
+## Remembered lobby setup so "Back" from a game returns to the same screen.
+var lobby_memory := {}
 
 var _toast_layer: CanvasLayer
 var _toast_panel: PanelContainer
@@ -55,8 +70,43 @@ func _ready() -> void:
 	_load_settings()
 	_build_overlay()
 	apply_fullscreen()
+	CustomMaps.install_examples()
+	_connect_net.call_deferred()
 	if "--autotest" in OS.get_cmdline_user_args() and ResourceLoader.exists("res://tools/autotest.gd"):
 		add_child(load("res://tools/autotest.gd").new())
+
+
+func ship_texture(color: int) -> Texture2D:
+	color = clampi(color, 0, SHIP_COLORS.size() - 1)
+	if not _ship_tex.has(color):
+		_ship_tex[color] = load("res://assets/sprites/ships/ship_%s.png" % SHIP_COLORS[color][0])
+	return _ship_tex[color]
+
+
+func ship_color(color: int, light := 65.0) -> Color:
+	var c: Array = SHIP_COLORS[clampi(color, 0, SHIP_COLORS.size() - 1)]
+	return UI.hsl(c[2], c[3], light)
+
+
+func pilot_name() -> String:
+	var n: String = settings.name
+	if n.strip_edges() == "":
+		n = OS.get_environment("USERNAME")
+		if n == "":
+			n = OS.get_environment("USER")
+	return Net.clean_name(n, "Pilot")
+
+
+func _connect_net() -> void:
+	## Online guests follow the host from screen to screen.
+	Net.story_received.connect(func(players: Array):
+		play_start = {"players": players}
+		story_kind = "online"
+		goto_scene("res://scenes/story.tscn"))
+	Net.start_received.connect(func(s: Dictionary): start_game(s))
+	Net.returned_to_lobby.connect(func():
+		lobby_memory["tab"] = "online"
+		goto_scene("res://scenes/lobby.tscn"))
 
 
 func version() -> String:
@@ -143,8 +193,22 @@ func _write_high(n: int) -> void:
 
 # ---------------------------------------------------------------- scenes
 func goto_menu() -> void:
+	Net.leave()
 	get_tree().paused = false
 	get_tree().change_scene_to_file("res://scenes/menu.tscn")
+
+
+## Shows the story first (single player or squadron version), then starts the game.
+func start_with_story(start: Dictionary, kind: String) -> void:
+	play_start = start.duplicate(true)
+	story_kind = kind
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/story.tscn")
+
+
+func goto_scene(path: String) -> void:
+	get_tree().paused = false
+	get_tree().change_scene_to_file(path)
 
 
 func start_game(start: Dictionary) -> void:

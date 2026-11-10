@@ -14,6 +14,26 @@ reads this file, so new entries show up in the game automatically.
 
 ---
 
+## [1.2.0] - 2026-11-10
+
+### Added
+- **Multiplayer for up to 4 players.** Co-op: everyone flies their own ship in the same battle, with their own lives, bombs, power-ups and score, plus a team score.
+  - **Same Computer:** each player presses A on their own controller to join (one player can use the keyboard instead). LB / RB (or Q / E on the keyboard) changes your ship colour; B leaves.
+  - **Online:** like Chess, Checkers and the card games, one player hosts and up to three friends join by IP address, on a home network or over the internet (UDP port 47040). The host's game runs the battle. Everyone must have the same version.
+  - **Pick your ship colour:** 8 colours (Blue, Red, Green, Gold, Purple, Orange, Teal, Silver); no two pilots can fly the same one.
+  - An **Extra Ship** brings a downed wingmate back into the fight. The game ends when every pilot is out.
+  - More pilots means a tougher fight: more enemy fire, tougher Cruisers and a stronger Erebus.
+- **Story.** A new intro before the campaign tells how Erebus wakes at the edge of the solar system: a solo version for the last pilot of the Aurora, and a squadron version for multiplayer. Space / A continues, Esc / Start skips. Victory now ends the story too.
+- **Level Editor and Custom Maps** (new **Custom Maps** entry on the main menu).
+  - Paint a formation of up to 13 x 6 aliens with the mouse, keyboard or a controller, and choose the backdrop, music, alien colours, march speed, enemy fire, shot speed, divers, bonus saucer, number of shields and whether Erebus waits at the end.
+  - Save, test-play, duplicate and delete maps; play any map solo or with friends (same computer or online; guests don't need a copy of the map).
+  - Custom maps are saved on their own in `%APPDATA%\Solar Siege\maps` (Open Maps Folder shows them, so you can share the files). They never change the nine campaign planets, don't touch your campaign save and don't count toward the high score.
+  - Two example maps to get started.
+
+### Changed
+- The main menu now has Multiplayer (no longer "Coming Soon") and Custom Maps.
+- New Game shows the story before Mercury (Continue goes straight back into the action).
+
 ## [1.1.0] - 2026-10-20
 
 ### Fixed
