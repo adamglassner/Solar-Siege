@@ -235,9 +235,29 @@ func _single() -> void:
 	_log("mercury: aliens=%d score=%d %s" % [p.aliens.size(), p.pilots[0].score, perf()])
 	check(p.aliens.size() > 0 and p.pilots[0].score > 0, "aliens spawn and can be shot")
 	p.debug_give("dual")
+	p.debug_give("dual")
 	p.debug_give("shield")
-	await wait(1.0)
+	for k in ["spread", "pierce", "homing", "wingman", "rapid", "speed", "warp"]:
+		p.debug_give(k)
+	var me = p.pilots[0]
+	check(me.t("dual") > 25.0, "picking up Dual twice stacks its time (%.1fs)" % me.t("dual"))
+	check(p.warp_t > 0, "Time Warp is running")
+	await wait(1.5)
+	var kinds := {}
+	for i in 90:
+		await get_tree().process_frame
+		for b in p.bullets:
+			kinds[b.kind] = true
 	await shot("s05_powerups")
+	_log("bullet kinds: %s  timers: %s" % [kinds.keys(), me.timers])
+	check(kinds.has("pierce") and kinds.has("missile") and kinds.has("drone"), "piercing lasers, homing missiles and the wingman all fire")
+	var before: float = me.t("homing")
+	p.debug_jump(1)
+	await wait(4.0)
+	await shot("s05b_carry_over")
+	check(me.t("homing") > 0 and me.t("dual") > 0 and me.t("wingman") > 0, "power-ups carry over to the next planet (homing %.1f -> %.1f)" % [before, me.t("homing")])
+	var sv: Dictionary = Global.load_game()
+	check(sv.has("powers") and sv.powers.size() >= 5, "the checkpoint save keeps your power-ups")
 	p.debug_jump(8)
 	await wait(5.5)
 	p.debug_clear_wave()
@@ -308,7 +328,11 @@ func _local() -> void:
 	p.debug_give("dual", 0)
 	p.debug_give("speed", 1)
 	p.debug_give("shield", 2)
-	await wait(1.0)
+	p.debug_give("wingman", 1)
+	p.debug_give("homing", 2)
+	p.debug_give("pierce", 0)
+	p.debug_give("warp", 0)
+	await wait(1.5)
 	await shot("l05_powerups")
 	# one pilot loses all lives, then an extra ship revives them
 	p.pilots[1].lives = 1
@@ -453,6 +477,10 @@ func _host() -> void:
 	var g = p.pilots[1]
 	_log("guest pilot x=%.0f score=%d alive=%s %s" % [g.x, g.score, g.alive, perf()])
 	check(g.score > 0, "the guest's shots count on the host")
+	for k in ["wingman", "homing", "pierce", "dual", "warp"]:
+		p.debug_give(k, 1)
+	await wait(3.0)
+	await shot("h04b_guest_powers")
 	p.debug_jump(8)
 	await wait(5.5)
 	p.debug_clear_wave()
@@ -505,6 +533,16 @@ func _guest() -> void:
 	await shot("g02_gameplay")
 	_log("guest view: aliens=%d bullets=%d my score=%d host score=%d" % [p.aliens.size(), p.bullets.size(), p.pilots[p.my_idx].score, p.pilots[0].score])
 	check(p.aliens.size() > 0, "guest sees the formation")
+	var mine = p.pilots[p.my_idx]
+	ok = await wait_until(func(): return mine.t("wingman") > 0 and p.warp_t > 0, 15.0, "power-ups from the host")
+	var seen := {}
+	for i in 90:
+		await get_tree().process_frame
+		for b in p.bullets:
+			seen[b.kind] = true
+	await shot("g02b_powers")
+	_log("guest powers: %s warp=%.1f shots=%s" % [mine.timers, p.warp_t, seen.keys()])
+	check(ok and seen.has("missile") and seen.has("drone") and seen.has("pierce"), "guest gets its power-ups, Time Warp and sees missiles, drone and piercing shots")
 	ok = await wait_until(func(): return p.boss != null, 60.0, "the boss")
 	await wait(2.0)
 	await shot("g03_boss")

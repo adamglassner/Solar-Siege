@@ -150,7 +150,9 @@ func load_game() -> Dictionary:
 	if lv < 0 or lv >= levels.size() or not DIFFICULTY.has(str(data.get("difficulty", ""))):
 		return {}
 	return {"level": lv, "score": int(data.score), "lives": int(data.lives), "bombs": int(data.bombs),
-		"difficulty": str(data.difficulty), "saved_at": int(data.get("saved_at", 0))}
+		"difficulty": str(data.difficulty), "saved_at": int(data.get("saved_at", 0)),
+		"powers": data.get("powers", {}) if typeof(data.get("powers")) == TYPE_DICTIONARY else {},
+		"warp": float(data.get("warp", 0.0))}
 
 
 func save_game(s: Dictionary) -> void:

@@ -24,15 +24,28 @@ const ALIEN_SIZE := {
 	"beetle": Vector2(90, 70), "wraith": Vector2(86, 74), "cruiser": Vector2(176, 100),
 }
 const ALIEN_BASE_HUE := {"drone": 120.0, "crab": 190.0, "squid": 310.0, "beetle": 30.0, "wraith": 270.0, "cruiser": 355.0}
-const POWERS := ["dual", "spread", "speed", "shield", "bomb", "rapid", "life"]
+const POWERS := ["dual", "spread", "speed", "shield", "bomb", "rapid", "life", "pierce", "homing", "wingman", "warp"]
 const POWER_INFO := {
 	"dual": ["DUAL LASERS", 190.0], "spread": ["TRIPLE SPREAD", 280.0], "speed": ["SPEED BOOST", 50.0],
 	"shield": ["SHIELD", 210.0], "bomb": ["NOVA BOMB", 10.0], "rapid": ["RAPID FIRE", 130.0], "life": ["EXTRA SHIP", 330.0],
+	"pierce": ["PIERCING LASER", 300.0], "homing": ["HOMING MISSILES", 30.0], "wingman": ["WINGMAN DRONE", 160.0],
+	"warp": ["TIME WARP", 240.0],
 }
-const WEAPONS := ["single", "dual", "spread"]
+## Timed power-ups each pilot can hold at once. Picking up one you already have adds its time again
+## (up to POWER_CAP), and they all carry over to the next planet. Dying loses them.
+const TIMED := ["dual", "spread", "rapid", "speed", "shield", "pierce", "homing", "wingman"]
+const DURATION := {"dual": 15.0, "spread": 15.0, "rapid": 12.0, "speed": 12.0, "shield": 10.0, "pierce": 12.0, "homing": 14.0, "wingman": 16.0, "warp": 8.0}
+const POWER_CAP := 60.0
+const WARP_CAP := 24.0
+## Time Warp slows every enemy (formation, divers, shots, saucer, boss) to this speed.
+const WARP_SLOW := 0.45
+const BULLET_TYPES := {"laser": 0, "pierce": -1, "missile": -2, "drone": -3}
 const BOSS_STATES := ["enter", "fight", "dying"]
 
 const TEX_LASER := preload("res://assets/sprites/projectiles/laser_player.png")
+const TEX_LASER_PIERCE := preload("res://assets/sprites/projectiles/laser_pierce.png")
+const TEX_MISSILE := preload("res://assets/sprites/projectiles/missile.png")
+const TEX_DRONE := preload("res://assets/sprites/wingman_drone.png")
 const TEX_SAUCER := [preload("res://assets/sprites/saucer_0.png"), preload("res://assets/sprites/saucer_1.png")]
 const TEX_SAUCER_FLASH := [preload("res://assets/sprites/saucer_flash_0.png"), preload("res://assets/sprites/saucer_flash_1.png")]
 const TEX_BOSS := preload("res://assets/sprites/boss/boss.png")
@@ -87,8 +100,11 @@ class Bullet:
 	var dmg := 1
 	var hue: float
 	var rot: float
-	var r := 0 # plasma radius (0 = player laser)
+	var r := 0 # plasma radius (0 = player laser, negative = other player shot types, see BULLET_TYPES)
 	var owner := 0 # pilot who fired it (player shots)
+	var kind := "plasma" # plasma | laser | pierce | missile | drone
+	var pierced: Array = [] # aliens a piercing shot already went through
+	var life := 3.0
 
 
 class Bunker:
@@ -114,15 +130,22 @@ class Pilot:
 	var respawn_t := 0.0
 	var invuln := 0.0
 	var cooldown := 0.0
-	var weapon := "single"
-	var weapon_t := 0.0
-	var rapid_t := 0.0
-	var speed_t := 0.0
-	var shield_t := 0.0
+	var timers := {} # power -> seconds left (see TIMED)
+	var tmax := {} # power -> seconds right after the last pickup (for the HUD bar)
+	var missile_cd := 0.0
+	var drone_cd := 0.0
+	var missile_side := 1.0
 	var lives := 3
 	var bombs := 1
 	var score := 0
 	var left := false # online: disconnected
+
+	func t(k: String) -> float:
+		return timers.get(k, 0.0)
+
+	func lose_powers() -> void:
+		timers.clear()
+		tmax.clear()
 
 	func playing() -> bool:
 		return alive and not left
@@ -148,7 +171,8 @@ var checkpoint := {}
 var start_info := {}
 
 var hi_score := 0
-var team_bonus := 0 # clear bonuses (single player adds them to the pilot)
+var team_bonus := 0
+var warp_t := 0.0 # clear bonuses (single player adds them to the pilot)
 
 var aliens: Array[Alien] = []
 var total_aliens := 1
@@ -253,6 +277,12 @@ func _make_pilots(start: Dictionary) -> void:
 		p.lives = start.get("lives", dm.lives)
 		p.bombs = start.get("bombs", 1)
 		p.score = start.get("score", 0)
+		var saved: Dictionary = start.get("powers", {})
+		for k in saved:
+			if k in TIMED:
+				p.timers[k] = clampf(float(saved[k]), 0.0, POWER_CAP)
+				p.tmax[k] = maxf(p.timers[k], DURATION[k])
+		warp_t = clampf(float(start.get("warp", 0.0)), 0.0, WARP_CAP)
 		list = []
 		pilots.append(p)
 	for i in list.size():
@@ -332,7 +362,8 @@ func load_level(i: int) -> void:
 	lv = _level_for(i)
 	if mode == "single" and not lv.custom:
 		var p := pilots[0]
-		checkpoint = {"level": i, "score": p.score, "lives": p.lives, "bombs": p.bombs, "difficulty": diff}
+		checkpoint = {"level": i, "score": p.score, "lives": p.lives, "bombs": p.bombs, "difficulty": diff,
+			"powers": p.timers.duplicate(), "warp": warp_t}
 		Global.save_game(checkpoint)
 	_ev(["level", i])
 	_setup_visuals()
@@ -348,11 +379,9 @@ func load_level(i: int) -> void:
 		p.alive = p.lives > 0 and not p.left
 		p.respawn_t = 0.0
 		p.invuln = 0.0
-		p.weapon = "single"
-		p.weapon_t = 0.0
-		p.rapid_t = 0.0
-		p.speed_t = 0.0
-		p.shield_t = 0.0
+		## power-ups carry over to the next planet (only dying takes them away)
+		if not p.alive:
+			p.lose_powers()
 	_place_pilots()
 	_build_formation()
 	state = "intro"
@@ -739,8 +768,8 @@ func _process(delta: float) -> void:
 	flash_a = maxf(0.0, flash_a - dt * 2.2)
 	var any_speed := false
 	for p in pilots:
-		any_speed = any_speed or p.speed_t > 0
-	stars.speed = 2.6 if any_speed else 1.0
+		any_speed = any_speed or p.t("speed") > 0
+	stars.speed = (2.6 if any_speed else 1.0) * (0.35 if warp_t > 0 else 1.0)
 
 	if is_guest():
 		_guest_update(dt)
@@ -779,17 +808,20 @@ func _simulate(dt: float) -> void:
 				state = "play"
 				state_t = 0
 		"play":
+			_tick_warp(dt)
+			var edt := dt * _enemy_speed()
 			_update_pilots(dt, true)
-			_update_formation(dt)
-			_update_aliens(dt)
-			_update_enemy_fire(dt)
-			_update_saucer(dt)
-			_update_boss(dt)
+			_update_formation(edt)
+			_update_aliens(edt)
+			_update_enemy_fire(edt)
+			_update_saucer(edt)
+			_update_boss(edt)
 			_update_bullets(dt)
 			_update_powers(dt)
 			_update_wave(dt)
 			_check_progress()
 		"boss_warn":
+			_tick_warp(dt)
 			_update_pilots(dt, true)
 			_update_bullets(dt)
 			_update_powers(dt)
@@ -838,22 +870,35 @@ func _update_pilots(dt: float, can_fire: bool) -> void:
 		_update_pilot(p, dt, can_fire)
 
 
-func _tick_timers(p: Pilot, dt: float) -> void:
-	p.invuln = maxf(0.0, p.invuln - dt)
-	if p.weapon_t > 0:
-		p.weapon_t = maxf(0.0, p.weapon_t - dt)
-		if p.weapon_t == 0:
-			p.weapon = "single"
-	p.rapid_t = maxf(0.0, p.rapid_t - dt)
-	p.speed_t = maxf(0.0, p.speed_t - dt)
-	if p.shield_t > 0:
-		p.shield_t = maxf(0.0, p.shield_t - dt)
-		if p.shield_t == 0:
+func _enemy_speed() -> float:
+	return WARP_SLOW if warp_t > 0 else 1.0
+
+
+func _tick_warp(dt: float) -> void:
+	if warp_t > 0:
+		warp_t = maxf(0.0, warp_t - dt)
+		if warp_t == 0:
 			sfx("menu_back")
 
 
+## Power-up timers only run while you're fighting, not during the planet banners.
+func _tick_timers(p: Pilot, dt: float, fighting: bool) -> void:
+	p.invuln = maxf(0.0, p.invuln - dt)
+	if not fighting:
+		return
+	for k in p.timers.keys():
+		var v: float = p.timers[k] - dt
+		if v <= 0:
+			p.timers.erase(k)
+			p.tmax.erase(k)
+			if k == "shield":
+				sfx("menu_back")
+		else:
+			p.timers[k] = v
+
+
 func _move_pilot(p: Pilot, dt: float) -> void:
-	var mx := 860.0 if p.speed_t > 0 else 540.0
+	var mx := 860.0 if p.t("speed") > 0 else 540.0
 	var dir := p.input.axis()
 	p.vx += (dir * mx - p.vx) * minf(1.0, dt * 14)
 	p.x = clampf(p.x + p.vx * dt, 70, W - 70)
@@ -862,7 +907,7 @@ func _move_pilot(p: Pilot, dt: float) -> void:
 func _update_pilot(p: Pilot, dt: float, can_fire: bool) -> void:
 	if p.left:
 		return
-	_tick_timers(p, dt)
+	_tick_timers(p, dt, can_fire)
 	if not p.alive:
 		if p.lives > 0:
 			p.respawn_t -= dt
@@ -874,43 +919,108 @@ func _update_pilot(p: Pilot, dt: float, can_fire: bool) -> void:
 		return
 	if p.input.source != PlayerInput.Source.REMOTE:
 		_move_pilot(p, dt) # online guests move their own ship and send its position
-	if p.speed_t > 0 and randf() < dt * 40:
+	if p.t("speed") > 0 and randf() < dt * 40:
 		fx_add(FxSystem.K.STREAK, p.x + randf_range(-30, 30), PLAYER_Y + 40, {"vy": 300, "life": 0.4, "size": 3, "hue": 50, "light": 70, "drag": 1.0})
 	p.cooldown -= dt
 	var bomb := p.input.bomb_pressed()
-	if can_fire and p.input.fire() and p.cooldown <= 0:
+	var firing := can_fire and p.input.fire()
+	if firing and p.cooldown <= 0:
 		_shoot(p)
+	if p.t("homing") > 0:
+		p.missile_cd -= dt
+		if firing and p.missile_cd <= 0:
+			_fire_missile(p)
+	if p.t("wingman") > 0:
+		p.drone_cd -= dt
+		if firing and p.drone_cd <= 0:
+			_fire_drone(p)
 	if can_fire and bomb:
 		_detonate_bomb(p)
 
 
+func _player_bullet(p: Pilot, pos: Vector2, angle: float, kind: String, speed := 1400.0) -> Bullet:
+	var b := Bullet.new()
+	b.pos = pos
+	b.vel = Vector2(sin(angle), -cos(angle)) * speed
+	b.size = Vector2(8, 36)
+	b.kind = kind
+	b.r = BULLET_TYPES[kind]
+	b.tex = {"laser": TEX_LASER, "pierce": TEX_LASER_PIERCE, "missile": TEX_MISSILE, "drone": TEX_LASER}[kind]
+	b.enemy = false
+	b.hue = 185
+	b.rot = angle
+	b.owner = p.idx
+	if kind == "missile":
+		b.size = Vector2(16, 30)
+		b.dmg = 2
+	elif kind == "drone":
+		b.size = Vector2(6, 26)
+	bullets.append(b)
+	return b
+
+
+## Weapons stack: Dual gives two parallel lasers, Triple Spread adds two angled ones,
+## and with both you fire four. Piercing makes every laser go through aliens.
 func _shoot(p: Pilot) -> void:
-	p.cooldown = 0.14 if p.rapid_t > 0 else 0.3
+	p.cooldown = 0.14 if p.t("rapid") > 0 else 0.3
 	var y := PLAYER_Y - 50
-	var spawn := func(x: float, angle: float):
-		var b := Bullet.new()
-		b.pos = Vector2(x, y)
-		b.vel = Vector2(sin(angle), -cos(angle)) * 1400.0
-		b.size = Vector2(8, 36)
-		b.tex = TEX_LASER
-		b.enemy = false
-		b.hue = 185
-		b.rot = angle
-		b.owner = p.idx
-		bullets.append(b)
-	if p.weapon == "dual":
-		spawn.call(p.x - 22, 0.0)
-		spawn.call(p.x + 22, 0.0)
-		sfx("laser_dual")
-	elif p.weapon == "spread":
-		spawn.call(p.x, 0.0)
-		spawn.call(p.x - 14, -0.2)
-		spawn.call(p.x + 14, 0.2)
-		sfx("laser_spread")
+	var kind := "pierce" if p.t("pierce") > 0 else "laser"
+	var dual := p.t("dual") > 0
+	var spread := p.t("spread") > 0
+	if dual:
+		_player_bullet(p, Vector2(p.x - 22, y), 0.0, kind)
+		_player_bullet(p, Vector2(p.x + 22, y), 0.0, kind)
 	else:
-		spawn.call(p.x, 0.0)
-		sfx("laser")
-	fx_add(FxSystem.K.GLOW, p.x, y + 6, {"life": 0.08, "size": 30, "grow": -100, "hue": 185, "light": 80})
+		_player_bullet(p, Vector2(p.x, y), 0.0, kind)
+	if spread:
+		_player_bullet(p, Vector2(p.x - 14, y), -0.2, kind)
+		_player_bullet(p, Vector2(p.x + 14, y), 0.2, kind)
+	sfx("laser_spread" if spread else ("laser_dual" if dual else "laser"))
+	fx_add(FxSystem.K.GLOW, p.x, y + 6, {"life": 0.08, "size": 30, "grow": -100, "hue": 300 if kind == "pierce" else 185, "light": 80})
+
+
+func _fire_missile(p: Pilot) -> void:
+	p.missile_cd = 0.7
+	p.missile_side *= -1
+	var b := _player_bullet(p, Vector2(p.x + 34 * p.missile_side, PLAYER_Y - 20), 0.35 * p.missile_side, "missile", 520.0)
+	b.life = 3.0
+	sfx("alien_shot")
+
+
+func drone_pos(p: Pilot) -> Vector2:
+	return Vector2(p.x - 92 + sin(time * 2.2 + p.idx) * 8, PLAYER_Y - 26 + sin(time * 3.1 + p.idx) * 6)
+
+
+func _fire_drone(p: Pilot) -> void:
+	p.drone_cd = 0.36
+	var d := drone_pos(p)
+	_player_bullet(p, d + Vector2(0, -24), 0.0, "drone")
+
+
+## Missiles steer toward the nearest target.
+func _steer_missile(b: Bullet, dt: float) -> void:
+	var target := Vector2.INF
+	var best := INF
+	for a in aliens:
+		if a.alive:
+			var d := b.pos.distance_squared_to(a.pos)
+			if d < best:
+				best = d
+				target = a.pos
+	if saucer != null and b.pos.distance_squared_to(saucer.pos) < best:
+		best = b.pos.distance_squared_to(saucer.pos)
+		target = saucer.pos
+	if boss != null and boss.state == "fight" and b.pos.distance_squared_to(Vector2(boss.x, boss.y)) < best:
+		target = Vector2(boss.x, boss.y)
+	var speed := minf(b.vel.length() + 900 * dt, 980.0)
+	var ang := b.vel.angle()
+	if target != Vector2.INF:
+		var want := (target - b.pos).angle()
+		ang = rotate_toward(ang, want, 5.5 * dt)
+	b.vel = Vector2.from_angle(ang) * speed
+	b.rot = ang + PI / 2
+	if randf() < dt * 30:
+		fx_add(FxSystem.K.SMOKE, b.pos.x, b.pos.y, {"life": 0.4, "size": 6, "grow": 14, "hue": 30, "sat": 30, "light": 55, "drag": 0.2})
 
 
 func _detonate_bomb(p: Pilot) -> void:
@@ -1163,14 +1273,19 @@ func _damage_saucer(dmg: int, p: Pilot) -> void:
 
 
 func _update_bullets(dt: float) -> void:
+	var edt := dt * _enemy_speed()
 	for b in bullets:
-		b.pos += b.vel * dt
+		if b.kind == "missile":
+			_steer_missile(b, dt)
+			b.life -= dt
+		b.pos += b.vel * (edt if b.enemy else dt)
 	var keep: Array[Bullet] = []
 	for b in bullets:
-		if b.pos.y < -60 or b.pos.y > H + 60 or b.pos.x < -60 or b.pos.x > W + 60:
+		if b.pos.y < -60 or b.pos.y > H + 60 or b.pos.x < -60 or b.pos.x > W + 60 or b.life <= 0:
 			continue
 		var gone := false
-		for i in 3:
+		## homing missiles and wingman shots fly over your own bunkers
+		for i in (0 if b.kind in ["missile", "drone"] else 3):
 			var t := i / 3.0
 			var x := b.pos.x - b.vel.x * (1.0 / 60.0) * t
 			var y := b.pos.y - b.vel.y * (1.0 / 60.0) * t + (b.size.y / 2 if b.enemy else -b.size.y / 2)
@@ -1191,7 +1306,7 @@ func _update_bullets(dt: float) -> void:
 			for p in pilots:
 				if not p.playing():
 					continue
-				if p.shield_t > 0 and b.pos.distance_to(Vector2(p.x, PLAYER_Y)) < 78:
+				if p.t("shield") > 0 and b.pos.distance_to(Vector2(p.x, PLAYER_Y)) < 78:
 					fx_hit(b.pos.x, b.pos.y, 210)
 					sfx("shield_block")
 					stopped = true
@@ -1206,18 +1321,23 @@ func _update_bullets(dt: float) -> void:
 			var shooter: Pilot = pilots[clampi(b.owner, 0, pilots.size() - 1)]
 			var consumed := false
 			for a in aliens:
-				if not a.alive:
+				if not a.alive or a in b.pierced:
 					continue
 				if _overlap(b.pos, b.size, a.pos, a.size * 0.82):
 					_damage_alien(a, b.dmg, shooter)
 					fx_hit(b.pos.x, b.pos.y - 10, a.hue)
-					consumed = true
-					break
+					if b.kind == "pierce":
+						b.pierced.append(a) # keeps flying through
+					else:
+						consumed = true
+						break
 			if consumed:
 				continue
-			if saucer != null and _overlap(b.pos, b.size, saucer.pos, Vector2(170, 56)):
+			if saucer != null and not ("saucer" in b.pierced) and _overlap(b.pos, b.size, saucer.pos, Vector2(170, 56)):
 				_damage_saucer(b.dmg, shooter)
-				continue
+				if b.kind != "pierce":
+					continue
+				b.pierced.append("saucer")
 			if boss != null and boss.state == "fight":
 				var dx: float = (b.pos.x - boss.x) / 230.0
 				var dy: float = (b.pos.y - (boss.y - 10)) / 150.0
@@ -1260,6 +1380,9 @@ func _drop_power(pos: Vector2, guaranteed: bool, big := false) -> void:
 	var opts := [["dual", 22], ["speed", 16], ["shield", 15], ["bomb", 13], ["rapid", 16]]
 	if _level_power() >= 2:
 		opts.append(["spread", 12])
+	opts.append_array([["homing", 11], ["wingman", 10], ["warp", 8]])
+	if _level_power() >= 1:
+		opts.append(["pierce", 11])
 	var anyone_down := false
 	var min_lives := 99
 	for p in pilots:
@@ -1304,19 +1427,18 @@ func _update_powers(dt: float) -> void:
 func _collect(p: Pilot, k: String) -> void:
 	var info: Array = POWER_INFO[k]
 	var label: String = info[0]
+	var stacked := false
 	match k:
-		"dual":
-			p.weapon = "dual"
-			p.weapon_t = 15
-		"spread":
-			p.weapon = "spread"
-			p.weapon_t = 15
-		"rapid":
-			p.rapid_t = 12
-		"speed":
-			p.speed_t = 12
-		"shield":
-			p.shield_t = 10
+		"dual", "spread", "rapid", "speed", "shield", "pierce", "homing", "wingman":
+			stacked = p.t(k) > 0
+			p.timers[k] = minf(p.t(k) + DURATION[k], POWER_CAP)
+			p.tmax[k] = p.timers[k]
+			if k == "wingman" and not stacked:
+				p.drone_cd = 0.0
+		"warp":
+			stacked = warp_t > 0
+			warp_t = minf(warp_t + DURATION.warp, WARP_CAP)
+			set_flash(0.25)
 		"bomb":
 			p.bombs = mini(3, p.bombs + 1)
 		"life":
@@ -1332,16 +1454,23 @@ func _collect(p: Pilot, k: String) -> void:
 				label = "%s IS BACK!" % revived.name.to_upper()
 			else:
 				p.lives = mini(7, p.lives + 1)
-	sfx("pu_" + k)
+	if stacked:
+		label += "  +%ds" % int(DURATION[k])
+	sfx(_pickup_sound(k))
 	add_score(p, 50)
 	fx_text(p.x, PLAYER_Y - 90, label, UI.hsl(info[1], 100, 72), 30, 1.3)
 	fx_add(FxSystem.K.RING, p.x, PLAYER_Y, {"life": 0.5, "size": 20, "grow": 300, "hue": info[1], "light": 70})
 
 
+func _pickup_sound(k: String) -> String:
+	## the four newer power-ups reuse the closest-matching pickup sound files
+	return "pu_" + {"pierce": "spread", "homing": "rapid", "wingman": "shield", "warp": "speed"}.get(k, k)
+
+
 func _hit_pilot(p: Pilot) -> void:
 	if not p.playing() or p.invuln > 0 or debug_god:
 		return
-	if p.shield_t > 0:
+	if p.t("shield") > 0:
 		sfx("shield_block")
 		return
 	_kill_pilot(p)
@@ -1357,11 +1486,7 @@ func _kill_pilot(p: Pilot) -> void:
 	sfx("player_hit")
 	add_shake(22)
 	set_flash(0.35)
-	p.weapon = "single"
-	p.weapon_t = 0
-	p.rapid_t = 0
-	p.speed_t = 0
-	p.shield_t = 0
+	p.lose_powers()
 	if multi() and p.lives <= 0:
 		fx_text(p.x, PLAYER_Y - 120, "%s IS OUT" % p.name.to_upper(), Global.ship_color(p.color, 75), 30, 2.0)
 	var all_out := true
@@ -1436,7 +1561,7 @@ func _update_boss(dt: float) -> void:
 		if l.t >= l.warn:
 			for p in pilots:
 				if p.playing() and p.invuln <= 0 and absf(l.x - p.x) < 58:
-					if p.shield_t > 0:
+					if p.t("shield") > 0:
 						if randf() < dt * 10:
 							sfx("shield_block")
 					else:
@@ -1625,6 +1750,8 @@ func _restart_start(level: int) -> Dictionary:
 		s.lives = Global.DIFFICULTY[diff].lives
 		s.score = checkpoint.get("score", 0) if not lv.custom else 0
 		s.bombs = checkpoint.get("bombs", 1) if not lv.custom else 1
+		s.powers = checkpoint.get("powers", {}) if not lv.custom else {}
+		s.warp = checkpoint.get("warp", 0.0) if not lv.custom else 0.0
 	return s
 
 
@@ -1686,8 +1813,9 @@ func _host_send(dt: float) -> void:
 func _snapshot() -> Dictionary:
 	var pf := PackedFloat32Array()
 	for p in pilots:
-		pf.append_array([p.x, p.vx, 1.0 if p.alive else 0.0, p.invuln, p.shield_t, p.speed_t, WEAPONS.find(p.weapon), p.weapon_t,
-			p.rapid_t, p.lives, p.bombs, p.score, 1.0 if p.left else 0.0])
+		pf.append_array([p.x, p.vx, 1.0 if p.alive else 0.0, p.invuln, p.lives, p.bombs, p.score, 1.0 if p.left else 0.0])
+		for k in TIMED:
+			pf.append(p.t(k))
 	var af := PackedFloat32Array()
 	for a in aliens:
 		if a.alive:
@@ -1699,7 +1827,7 @@ func _snapshot() -> Dictionary:
 	var wf := PackedFloat32Array()
 	for pw in powers:
 		wf.append_array([POWERS.find(pw[0]), pw[1].x, pw[1].y, pw[3]])
-	var s := {"t": "s", "st": state, "stt": state_t, "af": anim_frame, "cb": clear_bonus, "p": pf, "a": af, "b": bf, "w": wf}
+	var s := {"t": "s", "st": state, "stt": state_t, "af": anim_frame, "cb": clear_bonus, "p": pf, "a": af, "b": bf, "w": wf, "wp": warp_t}
 	if saucer != null:
 		s.sc = PackedFloat32Array([saucer.pos.x, saucer.pos.y, saucer.flash])
 	if boss != null:
@@ -1769,14 +1897,15 @@ func _guest_setup(start: Dictionary) -> void:
 func _guest_update(dt: float) -> void:
 	state_t += dt
 	var me := pilots[my_idx]
-	_tick_timers(me, dt)
+	me.invuln = maxf(0.0, me.invuln - dt)
 	if me.playing():
 		_move_pilot(me, dt)
 	if me.input.bomb_pressed():
 		_guest_bombs += 1
 	Net.send_host({"t": "in", "x": me.x, "a": me.input.axis(), "f": me.input.fire(), "b": _guest_bombs}, false)
+	var edt := dt * _enemy_speed()
 	for b in bullets:
-		b.pos += b.vel * dt
+		b.pos += b.vel * (edt if b.enemy else dt)
 	if state == "intro":
 		_animate(dt, 0.5)
 	if state in ["gameover", "victory"] and state_t > 1.5 and not end_shown:
@@ -1794,24 +1923,32 @@ func _apply_snapshot(s: Dictionary) -> void:
 	anim_frame = s.af
 	clear_bonus = s.cb
 	var pf: PackedFloat32Array = s.p
-	for i in mini(pilots.size(), pf.size() / 13):
+	var stride := 8 + TIMED.size()
+	warp_t = s.get("wp", 0.0)
+	for i in mini(pilots.size(), pf.size() / stride):
 		var p := pilots[i]
-		var o := i * 13
+		var o := i * stride
 		var was_alive := p.alive
 		p.alive = pf[o + 2] > 0.5
 		if i != my_idx or not p.alive or not was_alive:
 			p.x = pf[o]
 			p.vx = pf[o + 1]
 		p.invuln = pf[o + 3]
-		p.shield_t = pf[o + 4]
-		p.speed_t = pf[o + 5]
-		p.weapon = WEAPONS[clampi(int(pf[o + 6]), 0, 2)]
-		p.weapon_t = pf[o + 7]
-		p.rapid_t = pf[o + 8]
-		p.lives = int(pf[o + 9])
-		p.bombs = int(pf[o + 10])
-		p.score = int(pf[o + 11])
-		p.left = pf[o + 12] > 0.5
+		p.lives = int(pf[o + 4])
+		p.bombs = int(pf[o + 5])
+		p.score = int(pf[o + 6])
+		for j in TIMED.size():
+			var k: String = TIMED[j]
+			var v := pf[o + 8 + j]
+			if v > 0:
+				if v > p.t(k) + 0.5:
+					p.tmax[k] = v
+				p.timers[k] = v
+				p.tmax[k] = maxf(p.tmax.get(k, v), v)
+			else:
+				p.timers.erase(k)
+				p.tmax.erase(k)
+		p.left = pf[o + 7] > 0.5
 	aliens.clear()
 	var af: PackedFloat32Array = s.a
 	for i in af.size() / 7:
@@ -1834,7 +1971,11 @@ func _apply_snapshot(s: Dictionary) -> void:
 		b.hue = bf[o + 5]
 		b.r = int(bf[o + 6])
 		b.enemy = b.r > 0
-		b.tex = _plasma(b.hue, b.r) if b.enemy else TEX_LASER
+		b.kind = "plasma"
+		for kk in BULLET_TYPES:
+			if BULLET_TYPES[kk] == b.r:
+				b.kind = kk
+		b.tex = _plasma(b.hue, b.r) if b.enemy else {"laser": TEX_LASER, "pierce": TEX_LASER_PIERCE, "missile": TEX_MISSILE, "drone": TEX_LASER}[b.kind]
 		bullets.append(b)
 	powers.clear()
 	var wf: PackedFloat32Array = s.w
@@ -1957,7 +2098,7 @@ func _draw_actors() -> void:
 func _draw_bullets() -> void:
 	var ci: CanvasItem = $World/Bullets
 	for b in bullets:
-		UI.draw_sprite(ci, b.tex, b.pos, 1.0, b.rot)
+		UI.draw_sprite(ci, b.tex, b.pos, 0.7 if b.kind == "drone" else 1.0, b.rot)
 
 
 func _blinking(p: Pilot) -> bool:
@@ -1969,9 +2110,9 @@ func _draw_flames() -> void:
 	for p in pilots:
 		if not p.playing() or _blinking(p):
 			continue
-		var ln := (60.0 if p.speed_t > 0 else 34.0) + randf() * 10
-		var c := UI.hsl(45 if p.speed_t > 0 else 195, 100, 65)
-		if multi() and p.speed_t <= 0:
+		var ln := (60.0 if p.t("speed") > 0 else 34.0) + randf() * 10
+		var c := UI.hsl(45 if p.t("speed") > 0 else 195, 100, 65)
+		if multi() and p.t("speed") <= 0:
 			c = Global.ship_color(p.color, 65)
 		for s in [-7.0, 7.0]:
 			ci.draw_texture_rect(TEX_FLAME, Rect2(p.x + s - 5, PLAYER_Y + 40, 10, ln * 1.05), false, c.lerp(Color.WHITE, 0.2))
@@ -1983,15 +2124,18 @@ func _draw_player() -> void:
 		if not p.playing() or _blinking(p):
 			continue
 		UI.draw_sprite(ci, p.tex, Vector2(p.x, PLAYER_Y), 1.0, clampf(p.vx / 4000.0, -0.14, 0.14))
+		if p.t("wingman") > 0:
+			var fade_d := (0.45 if int(time * 10) % 2 else 1.0) if p.t("wingman") < 2 else 1.0
+			UI.draw_sprite(ci, TEX_DRONE, drone_pos(p), 1.0, clampf(p.vx / 6000.0, -0.1, 0.1), Color(1, 1, 1, fade_d))
 		if multi():
 			_txt(ci, p.name, p.x, PLAYER_Y + 76, 16, "extrabold", Global.ship_color(p.color, 78), HORIZONTAL_ALIGNMENT_CENTER, 1)
 
 
 func _draw_shield() -> void:
 	for p in pilots:
-		if not p.playing() or p.shield_t <= 0 or _blinking(p):
+		if not p.playing() or p.t("shield") <= 0 or _blinking(p):
 			continue
-		var fade := (0.4 if int(time * 10) % 2 else 1.0) if p.shield_t < 2 else 1.0
+		var fade := (0.4 if int(time * 10) % 2 else 1.0) if p.t("shield") < 2 else 1.0
 		var r := 76 + sin(time * 6) * 3
 		UI.draw_sprite($World/Shield, TEX_SHIELD, Vector2(p.x, PLAYER_Y), r / 76.0, time * 0.8, Color(1, 1, 1, fade))
 
@@ -2032,14 +2176,9 @@ func _level_title() -> String:
 
 func _actives(p: Pilot) -> Array:
 	var actives := []
-	if p.weapon_t > 0:
-		actives.append(["spread" if p.weapon == "spread" else "dual", p.weapon_t, 15.0])
-	if p.rapid_t > 0:
-		actives.append(["rapid", p.rapid_t, 12.0])
-	if p.speed_t > 0:
-		actives.append(["speed", p.speed_t, 12.0])
-	if p.shield_t > 0:
-		actives.append(["shield", p.shield_t, 10.0])
+	for k in TIMED:
+		if p.t(k) > 0:
+			actives.append([k, p.t(k), maxf(p.tmax.get(k, DURATION[k]), 0.1)])
 	return actives
 
 
@@ -2052,6 +2191,10 @@ func _draw_hud() -> void:
 		_draw_hud_multi(ci)
 	else:
 		_draw_hud_single(ci)
+	if warp_t > 0:
+		var wa := 0.55 + 0.45 * absf(sin(time * 3))
+		UI.draw_sprite(ci, _hud_power_tex["warp"], Vector2(W / 2 - 110, H - 40), 0.8, 0.0, Color(1, 1, 1, wa))
+		_txt(ci, "TIME WARP  %ds" % ceili(warp_t), W / 2 - 84, H - 40, 22, "extrabold", UI.hsl(240, 100, 80, wa), HORIZONTAL_ALIGNMENT_LEFT, 4)
 	if boss != null and boss.state != "enter":
 		var bw := 900.0
 		var bx := W / 2 - bw / 2
@@ -2087,6 +2230,7 @@ func _draw_hud_single(ci: CanvasItem) -> void:
 		var info: Array = POWER_INFO[k]
 		UI.draw_sprite(ci, _hud_power_tex[k], Vector2(x + 20, y))
 		_txt(ci, info[0], x + 52, y - 9, 16, "extrabold", UI.hsl(info[1], 100, 80), HORIZONTAL_ALIGNMENT_LEFT, 2)
+		_txt(ci, "%ds" % ceili(actives[i][1]), x + 222, y + 9, 15, "extrabold", Color(1, 1, 1, 0.85))
 		ci.draw_texture_rect(TEX_TIMER_TRACK, Rect2(x + 52, y + 6, 160, 6), false)
 		ci.draw_texture_rect(TEX_TIMER_FILL, Rect2(x + 52, y + 6, 160 * actives[i][1] / actives[i][2], 6), false, UI.hsl(info[1], 100, 65))
 
@@ -2129,16 +2273,18 @@ func _draw_hud_multi(ci: CanvasItem) -> void:
 		var acts := _actives(p)
 		for i in acts.size():
 			var k: String = acts[i][0]
-			var ix := x + cw - 22 - i * 34
-			if ix < x + 250:
+			var ix := x + cw - 18 - i * 26
+			if ix < x + 236:
 				break
-			UI.draw_sprite(ci, _hud_power_tex[k], Vector2(ix, y + 41), 0.66)
-			ci.draw_texture_rect(TEX_TIMER_FILL, Rect2(ix - 13, y + 55, 26 * acts[i][1] / acts[i][2], 3), false, UI.hsl(POWER_INFO[k][1], 100, 65))
+			UI.draw_sprite(ci, _hud_power_tex[k], Vector2(ix, y + 41), 0.52)
+			ci.draw_texture_rect(TEX_TIMER_FILL, Rect2(ix - 10, y + 54, 20 * acts[i][1] / acts[i][2], 3), false, UI.hsl(POWER_INFO[k][1], 100, 65))
 
 
 func _draw_banners() -> void:
 	var ci := banner
 	var t := state_t
+	if warp_t > 0 and state in ["play", "boss_warn"]:
+		ci.draw_rect(Rect2(0, 0, W, H), Color(0.35, 0.3, 1.0, 0.07 * minf(1.0, warp_t)))
 	if state == "intro":
 		var a := t / 0.4 if t < 0.4 else (maxf(0.0, 1 - (t - 2.7) / 0.5) if t > 2.7 else 1.0)
 		var y := H / 2 - 40
@@ -2242,5 +2388,5 @@ func debug_jump(level: int) -> void:
 func debug_kill(who: int) -> void:
 	debug_god = false
 	pilots[who].invuln = 0
-	pilots[who].shield_t = 0
+	pilots[who].timers.erase("shield")
 	_kill_pilot(pilots[who])

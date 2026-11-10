@@ -1,6 +1,6 @@
 # Solar Siege
 
-**Version 1.2.0** · A game by **Ironite** · A modern HD take on the classic arcade alien shooter, fought across all nine worlds of the solar system. Made with the **Godot Engine 4.7.2**.
+**Version 1.3.0** · A game by **Ironite** · A modern HD take on the classic arcade alien shooter, fought across all nine worlds of the solar system. Made with the **Godot Engine 4.7.2**.
 
 Fly a lone fighter from Mercury to Pluto, blast marching alien formations, hide behind crumbling shields, grab power-ups and take down the mothership boss **Erebus** at the edge of the system.
 
@@ -8,7 +8,7 @@ Fly a lone fighter from Mercury to Pluto, blast marching alien formations, hide 
 
 ## Install and play
 
-Run **`Solar Siege Setup 1.2.0.exe`**. It installs to your user folder (no admin rights needed) and adds Start Menu and desktop shortcuts plus an uninstaller (Settings → Apps).
+Run **`Solar Siege Setup 1.3.0.exe`**. It installs to your user folder (no admin rights needed) and adds Start Menu and desktop shortcuts plus an uninstaller (Settings → Apps).
 
 > Windows SmartScreen may warn about an unknown publisher because the installer isn't code-signed. Click **More info → Run anyway**.
 
@@ -57,6 +57,14 @@ Destroyed aliens sometimes drop a capsule. The bonus saucer always drops one, an
 | Shield | Energy bubble that blocks everything for 10 s |
 | Nova Bomb | Stores a bomb (max 3). Press B for a shockwave that wipes enemy fire and damages everything |
 | Extra Ship | +1 life |
+| Piercing Laser | Your lasers punch straight through every alien in their path for 12 s (from Venus onward) |
+| Homing Missiles | Missiles launch from your wings and chase the nearest enemy (double damage) for 14 s |
+| Wingman Drone | A small drone flies beside you and fires along with you for 16 s |
+| Time Warp | Slows every enemy, their shots, the saucer and Erebus to under half speed for 8 s |
+
+**Power-ups stack.** Hold as many at once as you can grab: Dual and Triple Spread together fire four lasers, and Piercing turns all of them into piercing beams. Picking up one you already have adds its time again (up to 60 s, Time Warp up to 24 s).
+
+**Power-ups carry over.** Whatever you have left when you clear a planet comes with you to the next one (timers pause during the planet intro), and it's kept in your save for Continue. Losing a ship loses your power-ups.
 
 ### The planets
 
@@ -148,7 +156,7 @@ Every graphic and sound is a plain file. To restyle the game, replace a file wit
 2. Install **NSIS 3** from https://nsis.sourceforge.io/Download (once).
 3. Double-click **`build-windows.bat`**. If Godot isn't at `C:\Godot\Godot_v4.7.2-stable_win64.exe`, edit the path at the top of the file first.
 
-The installer appears in `build\Solar Siege Setup 1.2.0.exe`.
+The installer appears in `build\Solar Siege Setup 1.3.0.exe`.
 
 ### Releasing a new version
 

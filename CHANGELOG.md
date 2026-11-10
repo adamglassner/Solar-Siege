@@ -14,6 +14,21 @@ reads this file, so new entries show up in the game automatically.
 
 ---
 
+## [1.3.0] - 2026-11-10
+
+### Added
+- **Four new power-ups**, each with its own capsule, HUD icon and pickup sound:
+  - **Piercing Laser** (magenta): your lasers go straight through every alien in their path (from Venus onward).
+  - **Homing Missiles** (orange): missiles launch from your wings and steer toward the nearest alien, saucer or Erebus, for double damage.
+  - **Wingman Drone** (teal): a small drone flies beside your ship and fires along with you.
+  - **Time Warp** (indigo): every enemy, enemy shot, the saucer and Erebus slow to under half speed. In multiplayer it slows them for the whole squadron.
+- The power-up list on the HUD now shows the seconds left on each power-up, and Time Warp shows a countdown at the bottom of the screen.
+
+### Changed
+- **Power-ups stack.** You can hold any number at once instead of one weapon replacing another: Dual + Triple Spread fire four lasers, and Piercing makes all of them pierce. Picking up a power-up you already have adds its time again ("+15s"), up to 60 seconds (Time Warp up to 24).
+- **Power-ups carry over to the next planet.** Timers pause during the planet intro and boss warning, and your power-ups are kept in your save, so Continue and Retry bring them back. Losing a ship still loses them.
+- Homing missiles and wingman shots fly over your own shields.
+
 ## [1.2.0] - 2026-11-10
 
 ### Added
