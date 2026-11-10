@@ -41,6 +41,9 @@ const WARP_CAP := 24.0
 const WARP_SLOW := 0.45
 const BULLET_TYPES := {"laser": 0, "pierce": -1, "missile": -2, "drone": -3}
 const BOSS_STATES := ["enter", "fight", "dying"]
+## The only achievements custom maps can earn; everything else needs the campaign.
+const EDITOR_ACH := ["architect", "playtester", "boss_builder", "sharing_is_caring"]
+const SCORE_ACH := [[10000, "five_figures"], [50000, "high_roller"], [100000, "legend"]]
 
 const TEX_LASER := preload("res://assets/sprites/projectiles/laser_player.png")
 const TEX_LASER_PIERCE := preload("res://assets/sprites/projectiles/laser_pierce.png")
@@ -105,6 +108,8 @@ class Bullet:
 	var kind := "plasma" # plasma | laser | pierce | missile | drone
 	var pierced: Array = [] # aliens a piercing shot already went through
 	var life := 3.0
+	var hit := false # touched an enemy (for Sharpshooter)
+	var kills := 0
 
 
 class Bunker:
@@ -139,6 +144,16 @@ class Pilot:
 	var bombs := 1
 	var score := 0
 	var left := false # online: disconnected
+	## achievement tracking
+	var run_lost := 0 # ships lost this campaign
+	var run_bombs := 0 # Nova Bombs used this campaign
+	var planet_hit := false
+	var planet_missed := false
+	var planet_shots := 0
+	var planet_pickups := 0
+	var turtle := -2 # shield it has stayed under this planet (-2 not yet, -3 left cover)
+	var boss_lost := false
+	var score_tier := 0
 
 	func t(k: String) -> float:
 		return timers.get(k, 0.0)
@@ -201,6 +216,10 @@ var new_high := false
 var clear_bonus := 0
 var end_shown := false
 var debug_god := false
+var run := {} # this campaign: from_start, continued, retried, saucers_seen, saucers_killed
+var planet_bunker_hit := false
+var planet_close := false
+var bunker_cells: Array = [] # solid cells per shield at the start of the planet
 
 var _plasma_cache := {}
 var _alien_tex := {}
@@ -254,6 +273,7 @@ func _ready() -> void:
 	if not custom_map.is_empty():
 		custom_map = CustomMaps.validate(custom_map)
 	_make_pilots(start)
+	_start_run(start)
 	if mode == "online":
 		role = "host" if Net.is_host() else "guest"
 		Net.game_message.connect(_on_net_message)
@@ -313,6 +333,54 @@ func _make_pilots(start: Dictionary) -> void:
 	_place_pilots()
 
 
+func _start_run(start: Dictionary) -> void:
+	run = (start.get("run", {}) as Dictionary).duplicate() if mode == "single" else {}
+	if run.is_empty() or not run.has("from_start"):
+		run = {"from_start": int(start.get("level", 0)) == 0, "continued": false, "retried": false, "saucers_seen": 0, "saucers_killed": 0}
+	if start.get("continued", false):
+		run.continued = true
+	if start.get("retried", false):
+		run.retried = true
+	if mode == "single":
+		pilots[0].run_lost = int(run.get("lost", 0))
+		pilots[0].run_bombs = int(run.get("bombs", 0))
+	if mode != "single":
+		for p in pilots:
+			if _ach_local_pilot(p):
+				Achievements.add_item("all_colours", str(p.color))
+
+
+# ---------------------------------------------------------------- achievements
+func _ach_local_pilot(p: Pilot) -> bool:
+	return mode != "online" or p.idx == my_idx
+
+
+## Credits an achievement to a pilot: unlock (n = 0), add to a counter (n > 0) or add one of a set (item).
+## Online, the host works it out for every pilot and sends guests theirs.
+func _ach(p: Pilot, id: String, n := 0, item := "") -> void:
+	if is_guest() or p == null:
+		return
+	if lv != null and lv.custom and not (id in EDITOR_ACH):
+		return
+	if _ach_local_pilot(p):
+		_ach_apply(id, n, item)
+	else:
+		_ev(["ach", p.idx, id, n, item])
+
+
+func _ach_apply(id: String, n: int, item: String) -> void:
+	if item != "":
+		Achievements.add_item(id, item)
+	elif n > 0:
+		Achievements.add(id, n)
+	else:
+		Achievements.unlock(id)
+
+
+func _bunker_solid(b: Bunker) -> int:
+	return b.mask.count(1)
+
+
 func _place_pilots() -> void:
 	var n := pilots.size()
 	for p in pilots:
@@ -362,8 +430,11 @@ func load_level(i: int) -> void:
 	lv = _level_for(i)
 	if mode == "single" and not lv.custom:
 		var p := pilots[0]
+		var r := run.duplicate()
+		r["lost"] = p.run_lost
+		r["bombs"] = p.run_bombs
 		checkpoint = {"level": i, "score": p.score, "lives": p.lives, "bombs": p.bombs, "difficulty": diff,
-			"powers": p.timers.duplicate(), "warp": warp_t}
+			"powers": p.timers.duplicate(), "warp": warp_t, "run": r}
 		Global.save_game(checkpoint)
 	_ev(["level", i])
 	_setup_visuals()
@@ -384,6 +455,26 @@ func load_level(i: int) -> void:
 			p.lose_powers()
 	_place_pilots()
 	_build_formation()
+	planet_bunker_hit = false
+	planet_close = false
+	bunker_cells = bunkers.map(_bunker_solid)
+	for p in pilots:
+		p.planet_hit = false
+		p.planet_missed = false
+		p.planet_shots = 0
+		p.planet_pickups = 0
+		p.turtle = -2
+	if not lv.custom and i == Global.levels.size() - 1:
+		for p in pilots:
+			if p.alive:
+				_ach(p, "edge_of_darkness")
+				if TIMED.filter(func(k): return p.t(k) > 0).size() >= 4:
+					_ach(p, "inheritance")
+	if lv.custom and mode == "online" and role == "host":
+		for p in pilots:
+			if p.idx != my_idx:
+				var who := p
+				schedule(2.0, func(): _ach(who, "sharing_is_caring"))
 	state = "intro"
 	state_t = 0.0
 	_music(lv.music)
@@ -594,6 +685,7 @@ func _clear_cell(b: Bunker, i: int) -> void:
 	var q := i % cols
 	var r := i / cols
 	b.mask[i] = 0
+	planet_bunker_hit = true
 	b.image.fill_rect(Rect2i(q * CELL * 2 - 1, r * CELL * 2 - 1, CELL * 2 + 2, CELL * 2 + 2), Color(0, 0, 0, 0))
 	b.dirty = true
 
@@ -672,8 +764,15 @@ func _formation_aliens() -> Array[Alien]:
 
 func add_score(p: Pilot, n: int) -> void:
 	p.score += n
+	_score_ach(p)
 	if mode == "single" and not lv.custom and p.score > hi_score:
 		hi_score = p.score
+
+
+func _score_ach(p: Pilot) -> void:
+	while p.score_tier < SCORE_ACH.size() and p.score >= SCORE_ACH[p.score_tier][0]:
+		_ach(p, SCORE_ACH[p.score_tier][1])
+		p.score_tier += 1
 
 
 func _overlap(a: Vector2, asz: Vector2, b: Vector2, bsz: Vector2) -> bool:
@@ -919,6 +1018,15 @@ func _update_pilot(p: Pilot, dt: float, can_fire: bool) -> void:
 		return
 	if p.input.source != PlayerInput.Source.REMOTE:
 		_move_pilot(p, dt) # online guests move their own ship and send its position
+	if state == "play" and p.turtle != -3:
+		var under := -1
+		for i in bunkers.size():
+			if p.x >= bunkers[i].pos.x and p.x < bunkers[i].pos.x + BUNKER_W:
+				under = i
+		if under < 0 or (p.turtle >= 0 and p.turtle != under):
+			p.turtle = -3
+		elif p.turtle == -2:
+			p.turtle = under
 	if p.t("speed") > 0 and randf() < dt * 40:
 		fx_add(FxSystem.K.STREAK, p.x + randf_range(-30, 30), PLAYER_Y + 40, {"vy": 300, "life": 0.4, "size": 3, "hue": 50, "light": 70, "drag": 1.0})
 	p.cooldown -= dt
@@ -963,6 +1071,9 @@ func _player_bullet(p: Pilot, pos: Vector2, angle: float, kind: String, speed :=
 ## and with both you fire four. Piercing makes every laser go through aliens.
 func _shoot(p: Pilot) -> void:
 	p.cooldown = 0.14 if p.t("rapid") > 0 else 0.3
+	p.planet_shots += 1
+	if p.t("dual") > 0 and p.t("spread") > 0 and p.t("pierce") > 0:
+		_ach(p, "four_barrels")
 	var y := PLAYER_Y - 50
 	var kind := "pierce" if p.t("pierce") > 0 else "laser"
 	var dual := p.t("dual") > 0
@@ -1029,6 +1140,7 @@ func _detonate_bomb(p: Pilot) -> void:
 			Audio.play("denied")
 		return
 	p.bombs -= 1
+	p.run_bombs += 1
 	wave_id += 1
 	wave = {"pos": Vector2(p.x, PLAYER_Y - 30), "r": 0.0, "id": wave_id, "owner": p.idx}
 	set_flash(0.9)
@@ -1051,7 +1163,11 @@ func _update_wave(dt: float) -> void:
 			continue
 		if a.pos.distance_to(wave.pos) < wave.r:
 			a.bomb_hit = wave.id
-			_damage_alien(a, 3, owner)
+			_damage_alien(a, 3, owner, "bomb")
+			if not a.alive:
+				wave["kills"] = int(wave.get("kills", 0)) + 1
+				if wave.kills >= 10:
+					_ach(owner, "nova")
 	if saucer != null and saucer.pos.distance_to(wave.pos) < wave.r:
 		_damage_saucer(3, owner)
 	if boss != null and boss.state == "fight" and boss.bomb_hit != wave.id and Vector2(boss.x, boss.y).distance_to(wave.pos) < wave.r:
@@ -1102,10 +1218,13 @@ func _update_formation(dt: float) -> void:
 			for b in bunkers:
 				if _overlap(a.pos, a.size, b.pos + Vector2(BUNKER_W, BUNKER_H) / 2, Vector2(BUNKER_W, BUNKER_H)):
 					_erode(b, a.pos.x, a.pos.y, a.size.x * 0.55)
+	if lowest > PLAYER_Y - 40 - 95 and _any_playing():
+		planet_close = true # within a row of breaking through
 	if lowest > PLAYER_Y - 40 and _any_playing():
 		fx_text(W / 2, H / 2, "THEY BROKE THROUGH!", Color("#ff6b6b"), 54, 2)
 		for p in pilots:
 			if p.playing():
+				_ach(p, "they_broke_through")
 				_kill_pilot(p)
 		form_y = form_start_y
 		drop_left = 0
@@ -1142,7 +1261,7 @@ func _update_aliens(dt: float) -> void:
 				_alien_shoot(a, true)
 			for p in pilots:
 				if p.playing() and p.invuln <= 0 and a.alive and _overlap(a.pos, a.size * 0.7, Vector2(p.x, PLAYER_Y + 4), Vector2(70, 60)):
-					_damage_alien(a, 99, p)
+					_damage_alien(a, 99, p, "ram")
 					_hit_pilot(p)
 			var hit := _bunker_at(a.pos.x, a.pos.y + a.size.y / 3)
 			if hit.size():
@@ -1238,6 +1357,7 @@ func _update_saucer(dt: float) -> void:
 		if saucer_t <= 0 and _formation_aliens().size() > 3:
 			var dir := 1.0 if randf() < 0.5 else -1.0
 			saucer = {"pos": Vector2(-120 if dir > 0 else W + 120, 92), "dir": dir, "hp": 3, "flash": 0.0}
+			run.saucers_seen = int(run.get("saucers_seen", 0)) + 1
 			saucer_t = lv.saucer_every * randf_range(0.8, 1.25)
 			_saucer_sound(true)
 		return
@@ -1262,6 +1382,8 @@ func _damage_saucer(dmg: int, p: Pilot) -> void:
 		return
 	var pos: Vector2 = saucer.pos
 	_stop_saucer()
+	run.saucers_killed = int(run.get("saucers_killed", 0)) + 1
+	_ach(p, "saucer_hunter", 1)
 	var pts: float = [100, 150, 200, 300].pick_random() * (1 + _level_power() * 0.25)
 	var val := roundi(pts / 10.0) * 10
 	add_score(p, val)
@@ -1282,6 +1404,7 @@ func _update_bullets(dt: float) -> void:
 	var keep: Array[Bullet] = []
 	for b in bullets:
 		if b.pos.y < -60 or b.pos.y > H + 60 or b.pos.x < -60 or b.pos.x > W + 60 or b.life <= 0:
+			_bullet_gone(b)
 			continue
 		var gone := false
 		## homing missiles and wingman shots fly over your own bunkers
@@ -1297,6 +1420,7 @@ func _update_bullets(dt: float) -> void:
 				gone = true
 				break
 		if gone:
+			_bullet_gone(b)
 			continue
 		if b.enemy:
 			if state != "play" and state != "boss_warn":
@@ -1307,6 +1431,7 @@ func _update_bullets(dt: float) -> void:
 				if not p.playing():
 					continue
 				if p.t("shield") > 0 and b.pos.distance_to(Vector2(p.x, PLAYER_Y)) < 78:
+					p.planet_hit = true
 					fx_hit(b.pos.x, b.pos.y, 210)
 					sfx("shield_block")
 					stopped = true
@@ -1324,7 +1449,12 @@ func _update_bullets(dt: float) -> void:
 				if not a.alive or a in b.pierced:
 					continue
 				if _overlap(b.pos, b.size, a.pos, a.size * 0.82):
-					_damage_alien(a, b.dmg, shooter)
+					b.hit = true
+					_damage_alien(a, b.dmg, shooter, b.kind)
+					if not a.alive:
+						b.kills += 1
+						if b.kind == "pierce" and b.kills >= 5:
+							_ach(shooter, "kebab")
 					fx_hit(b.pos.x, b.pos.y - 10, a.hue)
 					if b.kind == "pierce":
 						b.pierced.append(a) # keeps flying through
@@ -1334,6 +1464,7 @@ func _update_bullets(dt: float) -> void:
 			if consumed:
 				continue
 			if saucer != null and not ("saucer" in b.pierced) and _overlap(b.pos, b.size, saucer.pos, Vector2(170, 56)):
+				b.hit = true
 				_damage_saucer(b.dmg, shooter)
 				if b.kind != "pierce":
 					continue
@@ -1342,13 +1473,20 @@ func _update_bullets(dt: float) -> void:
 				var dx: float = (b.pos.x - boss.x) / 230.0
 				var dy: float = (b.pos.y - (boss.y - 10)) / 150.0
 				if dx * dx + dy * dy < 1:
+					b.hit = true
 					_damage_boss(b.dmg, b.pos.x, b.pos.y, shooter)
 					continue
 		keep.append(b)
 	bullets = keep
 
 
-func _damage_alien(a: Alien, dmg: int, p: Pilot) -> void:
+func _bullet_gone(b: Bullet) -> void:
+	## a laser that never touched an enemy is a miss (Sharpshooter)
+	if not b.enemy and not b.hit and b.kind in ["laser", "pierce"] and state in ["play", "boss_warn"]:
+		pilots[clampi(b.owner, 0, pilots.size() - 1)].planet_missed = true
+
+
+func _damage_alien(a: Alien, dmg: int, p: Pilot, src := "") -> void:
 	if not a.alive:
 		return
 	a.hp -= dmg
@@ -1357,6 +1495,18 @@ func _damage_alien(a: Alien, dmg: int, p: Pilot) -> void:
 		sfx("hit_armor")
 		return
 	a.alive = false
+	if a.state == "dive":
+		_ach(p, "diver_down", 1)
+	if a.state == "minion":
+		_ach(p, "minion_massacre", 1)
+	if a.kind == "cruiser":
+		_ach(p, "cruiser_killer", 1)
+	elif a.kind == "wraith":
+		_ach(p, "ghostbuster", 1)
+	if src == "missile":
+		_ach(p, "fire_and_forget", 1)
+	elif src == "drone":
+		_ach(p, "wingman_of_the_year", 1)
 	var big := a.kind == "cruiser"
 	var mult := 1 + _level_power() * 0.1
 	var pts := roundi(a.score * mult / 5.0) * 5
@@ -1449,6 +1599,7 @@ func _collect(p: Pilot, k: String) -> void:
 					revived = q
 					break
 			if revived:
+				_ach(p, "leave_no_one_behind")
 				revived.lives = 1
 				revived.respawn_t = 0.6
 				label = "%s IS BACK!" % revived.name.to_upper()
@@ -1456,6 +1607,16 @@ func _collect(p: Pilot, k: String) -> void:
 				p.lives = mini(7, p.lives + 1)
 	if stacked:
 		label += "  +%ds" % int(DURATION[k])
+	p.planet_pickups += 1
+	_ach(p, "collector", 0, k)
+	var active := TIMED.filter(func(t): return p.t(t) > 0).size()
+	if active >= 5:
+		_ach(p, "fully_loaded")
+	if active >= TIMED.size():
+		_ach(p, "arsenal")
+	for t in TIMED:
+		if p.t(t) >= POWER_CAP - 0.01:
+			_ach(p, "hoarder")
 	sfx(_pickup_sound(k))
 	add_score(p, 50)
 	fx_text(p.x, PLAYER_Y - 90, label, UI.hsl(info[1], 100, 72), 30, 1.3)
@@ -1470,6 +1631,7 @@ func _pickup_sound(k: String) -> String:
 func _hit_pilot(p: Pilot) -> void:
 	if not p.playing() or p.invuln > 0 or debug_god:
 		return
+	p.planet_hit = true
 	if p.t("shield") > 0:
 		sfx("shield_block")
 		return
@@ -1481,6 +1643,12 @@ func _kill_pilot(p: Pilot) -> void:
 		return
 	p.alive = false
 	p.lives -= 1
+	p.run_lost += 1
+	p.planet_hit = true
+	if boss != null:
+		p.boss_lost = true
+	if state == "play" and state_t < 3.0 and boss == null:
+		_ach(p, "meant_to_do_that")
 	fx_explosion(p.x, PLAYER_Y, Global.SHIP_COLORS[p.color][2] if multi() else 190.0, 2.2)
 	fx_explosion(p.x, PLAYER_Y, 30, 1.2)
 	sfx("player_hit")
@@ -1531,11 +1699,76 @@ func _level_cleared() -> void:
 	for p in pilots:
 		lives += maxi(p.lives, 0)
 	clear_bonus = 1000 * (_level_power() + 1) + lives * 250
+	_planet_achievements()
 	_stop_saucer()
 	sfx("level_clear")
 	_music(null)
 	if lv.custom or level_index + 1 >= Global.levels.size():
 		_victory()
+
+
+func _planet_achievements() -> void:
+	var flying := pilots.filter(func(q): return not q.out())
+	var all_down := bunkers.size() > 0
+	for i in bunkers.size():
+		if i < bunker_cells.size() and _bunker_solid(bunkers[i]) > bunker_cells[i] * 0.15:
+			all_down = false
+	for p in flying:
+		if not lv.custom:
+			match level_index:
+				0:
+					_ach(p, "first_contact")
+					if p.planet_pickups == 0:
+						_ach(p, "cheapskate")
+				2:
+					_ach(p, "homeworld")
+				5:
+					_ach(p, "ringside")
+		if p.planet_shots > 0 and not p.planet_missed:
+			_ach(p, "sharpshooter")
+		if not p.planet_hit:
+			_ach(p, "flawless_planet")
+		if bunkers.size() > 0 and not planet_bunker_hit:
+			_ach(p, "fortress")
+		if all_down:
+			_ach(p, "no_cover")
+		if planet_close:
+			_ach(p, "close_shave")
+		if p.turtle >= 0:
+			_ach(p, "turtle")
+		if pilots.size() >= 4:
+			_ach(p, "squadron")
+		if pilots.size() >= 2 and flying.size() == 1:
+			_ach(p, "last_one_standing")
+
+
+func _campaign_achievements() -> void:
+	if lv.custom:
+		var mine := not str(custom_map.get("name", "")).begins_with("Example")
+		for p in pilots:
+			if not p.out():
+				if mine:
+					_ach(p, "playtester")
+				if lv.boss:
+					_ach(p, "boss_builder")
+		return
+	var clean: bool = run.get("from_start", false) and not run.get("retried", false)
+	for p in pilots:
+		if p.out():
+			continue
+		_ach(p, "sunrise")
+		if diff == "hard":
+			_ach(p, "veteran")
+		if clean and p.run_lost == 0:
+			_ach(p, "untouchable")
+			if diff == "hard":
+				_ach(p, "iron_pilot")
+		if clean and not run.get("continued", false):
+			_ach(p, "no_continues")
+		if clean and p.run_bombs == 0:
+			_ach(p, "pacifist_bomb")
+		if clean and int(run.get("saucers_seen", 0)) > 0 and int(run.get("saucers_killed", 0)) >= int(run.saucers_seen):
+			_ach(p, "clean_sweep")
 
 
 # ---------------------------------------------------------------- boss
@@ -1562,6 +1795,7 @@ func _update_boss(dt: float) -> void:
 			for p in pilots:
 				if p.playing() and p.invuln <= 0 and absf(l.x - p.x) < 58:
 					if p.t("shield") > 0:
+						p.planet_hit = true
 						if randf() < dt * 10:
 							sfx("shield_block")
 					else:
@@ -1577,6 +1811,9 @@ func _update_boss(dt: float) -> void:
 		if b.t > 3:
 			b.state = "fight"
 			b.t = 0.0
+			b["fight_at"] = time
+			for p in pilots:
+				p.boss_lost = false
 			fx_text(W / 2, 520, "EREBUS, THE VOID SOVEREIGN", Color("#d6a0ff"), 46, 2.4)
 		return
 	if b.state == "dying":
@@ -1704,6 +1941,7 @@ func _damage_boss(dmg: int, x: float, y: float, p: Pilot) -> void:
 	sfx("hit_armor")
 	if b.phase == 1 and b.hp <= b.max_hp / 2.0:
 		b.phase = 2
+		b["enraged_at"] = time
 		b.attack_t = 1.2
 		fx_text(W / 2, 560, "EREBUS IS ENRAGED!", Color("#ff5a7a"), 52, 2)
 		sfx("boss_warn")
@@ -1711,6 +1949,19 @@ func _damage_boss(dmg: int, x: float, y: float, p: Pilot) -> void:
 		set_flash(0.4)
 	if b.hp <= 0:
 		b.hp = 0
+		for q in pilots:
+			if q.out():
+				continue
+			if not q.boss_lost:
+				_ach(q, "eye_to_eye")
+			if time - float(b.get("fight_at", time)) <= 60.0:
+				_ach(q, "speedrun")
+			if b.has("enraged_at") and time - float(b.enraged_at) <= 20.0:
+				_ach(q, "calm_before")
+			if warp_t > 0:
+				_ach(q, "bullet_time")
+			if mode == "online":
+				_ach(q, "team_player")
 		b.state = "dying"
 		b.dying_t = 0.0
 		b.boom_t = 0.0
@@ -1727,7 +1978,10 @@ func _game_over() -> void:
 	end_shown = false
 	_stop_saucer()
 	if mode == "single" and not lv.custom:
+		var had_best := Global.high_score() > 0
 		new_high = Global.submit_score(pilots[0].score)
+		if new_high and had_best:
+			_ach(pilots[0], "personal_best")
 	_music(null)
 	sfx("game_over")
 
@@ -1737,8 +1991,12 @@ func _victory() -> void:
 	state_t = 0
 	end_shown = false
 	_award_clear_bonus()
+	_campaign_achievements()
 	if mode == "single" and not lv.custom:
+		var had_best := Global.high_score() > 0
 		new_high = Global.submit_score(pilots[0].score)
+		if new_high and had_best:
+			_ach(pilots[0], "personal_best")
 		Global.clear_game()
 	sfx("victory")
 
@@ -1752,6 +2010,9 @@ func _restart_start(level: int) -> Dictionary:
 		s.bombs = checkpoint.get("bombs", 1) if not lv.custom else 1
 		s.powers = checkpoint.get("powers", {}) if not lv.custom else {}
 		s.warp = checkpoint.get("warp", 0.0) if not lv.custom else 0.0
+		s.run = checkpoint.get("run", {})
+	s.erase("continued")
+	s["retried"] = true
 	return s
 
 
@@ -2034,6 +2295,9 @@ func _apply_event(e: Array) -> void:
 			end_shown = false
 			for c in end_menu.get_children():
 				c.queue_free()
+		"ach":
+			if int(e[1]) == my_idx:
+				_ach_apply(e[2], int(e[3]), str(e[4]))
 		"bunk":
 			if e[1] < bunkers.size():
 				var b := bunkers[e[1]]

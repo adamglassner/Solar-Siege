@@ -1,6 +1,6 @@
 # Solar Siege
 
-**Version 1.3.0** · A game by **Ironite** · A modern HD take on the classic arcade alien shooter, fought across all nine worlds of the solar system. Made with the **Godot Engine 4.7.2**.
+**Version 1.4.0** · A game by **Ironite** · A modern HD take on the classic arcade alien shooter, fought across all nine worlds of the solar system. Made with the **Godot Engine 4.7.2**.
 
 Fly a lone fighter from Mercury to Pluto, blast marching alien formations, hide behind crumbling shields, grab power-ups and take down the mothership boss **Erebus** at the edge of the system.
 
@@ -8,7 +8,7 @@ Fly a lone fighter from Mercury to Pluto, blast marching alien formations, hide 
 
 ## Install and play
 
-Run **`Solar Siege Setup 1.3.0.exe`**. It installs to your user folder (no admin rights needed) and adds Start Menu and desktop shortcuts plus an uninstaller (Settings → Apps).
+Run **`Solar Siege Setup 1.4.0.exe`**. It installs to your user folder (no admin rights needed) and adds Start Menu and desktop shortcuts plus an uninstaller (Settings → Apps).
 
 > Windows SmartScreen may warn about an unknown publisher because the installer isn't code-signed. Click **More info → Run anyway**.
 
@@ -65,6 +65,29 @@ Destroyed aliens sometimes drop a capsule. The bonus saucer always drops one, an
 **Power-ups stack.** Hold as many at once as you can grab: Dual and Triple Spread together fire four lasers, and Piercing turns all of them into piercing beams. Picking up one you already have adds its time again (up to 60 s, Time Warp up to 24 s).
 
 **Power-ups carry over.** Whatever you have left when you clear a planet comes with you to the next one (timers pause during the planet intro), and it's kept in your save for Continue. Losing a ship loses your power-ups.
+
+### Achievements
+
+54 achievements across the campaign, combat, power-ups, Erebus, multiplayer, the Level Editor and score, plus a few
+secret ones. Open **Achievements** on the main menu to see them all, with progress bars for the counting ones. A pop-up
+appears when you unlock one.
+
+- They count in single player and co-op. Custom maps only count toward the Level Editor achievements.
+- Online, every pilot earns their own: the host works them out and sends each guest theirs.
+- Progress is saved with your other saves in `%APPDATA%\Solar Siege\achievements.json`.
+- **Ironite Launcher** shows them too: the game keeps a copy in `%APPDATA%\Ironite\Achievements\solarsiege.json`
+  (with the medal icons in `solarsiege\`), which the launcher reads.
+
+- **Campaign** (9): First Contact, Homeworld Secured, Ringside Seat, The Edge of Darkness, Sunrise, Veteran, Untouchable, Iron Pilot, No Continues
+- **Combat** (11): Sharpshooter, Flawless, Fortress, No Cover, Close Shave, *They Broke Through*, Diver Down, Cruiser Killer, Ghostbuster, Saucer Hunter, Clean Sweep
+- **Power-Ups** (12): Fully Loaded, Arsenal, Four Barrels, Hoarder, Inheritance, Collector, Kebab, Fire and Forget, Wingman of the Year, Bullet Time, Nova, Pacifist Bomb
+- **Erebus** (4): Eye to Eye, Speedrun, Eye of the Storm, Minion Massacre
+- **Multiplayer** (5): Squadron, Leave No One Behind, Last One Standing, Team Player, All Colours
+- **Level Editor** (4): Architect, Playtester, Boss Builder, Sharing Is Caring
+- **Score** (4): Five Figures, High Roller, Legend, Personal Best
+- **Secret** (5): *Patience*, *Lore Reader*, *Turtle*, *I Meant to Do That*, *Cheapskate*
+
+*Secret achievements (in italics) stay hidden in the game until you unlock them.*
 
 ### The planets
 
@@ -156,7 +179,7 @@ Every graphic and sound is a plain file. To restyle the game, replace a file wit
 2. Install **NSIS 3** from https://nsis.sourceforge.io/Download (once).
 3. Double-click **`build-windows.bat`**. If Godot isn't at `C:\Godot\Godot_v4.7.2-stable_win64.exe`, edit the path at the top of the file first.
 
-The installer appears in `build\Solar Siege Setup 1.3.0.exe`.
+The installer appears in `build\Solar Siege Setup 1.4.0.exe`.
 
 ### Releasing a new version
 

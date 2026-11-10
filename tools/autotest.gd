@@ -19,6 +19,8 @@ func _ready() -> void:
 		elif a.begins_with("--scenario="):
 			scenario = a.substr(11)
 	DirAccess.make_dir_recursive_absolute(shots)
+	## achievements are shared with Ironite Launcher through this folder (normally %APPDATA%\Ironite\Achievements)
+	OS.set_environment("IRONITE_ACHIEVEMENTS_DIR", shots.path_join("ironite_achievements"))
 	if "--bench" in OS.get_cmdline_user_args():
 		_bench.call_deferred()
 	else:
@@ -242,6 +244,8 @@ func _single() -> void:
 	var me = p.pilots[0]
 	check(me.t("dual") > 25.0, "picking up Dual twice stacks its time (%.1fs)" % me.t("dual"))
 	check(p.warp_t > 0, "Time Warp is running")
+	check(Achievements.is_unlocked("fully_loaded") and Achievements.is_unlocked("arsenal"), "holding all 8 timed power-ups unlocks Fully Loaded and Arsenal")
+	check(Achievements.progress("collector") >= 9, "Collector counts each power-up type once (%d of 11)" % Achievements.progress("collector"))
 	await wait(1.5)
 	var kinds := {}
 	for i in 90:
@@ -260,6 +264,7 @@ func _single() -> void:
 	check(sv.has("powers") and sv.powers.size() >= 5, "the checkpoint save keeps your power-ups")
 	p.debug_jump(8)
 	await wait(5.5)
+	check(Achievements.is_unlocked("edge_of_darkness"), "reaching Pluto unlocks The Edge of Darkness")
 	p.debug_clear_wave()
 	await wait(4.5)
 	await wait(4.0)
@@ -269,10 +274,28 @@ func _single() -> void:
 	await wait(9.0)
 	await shot("s07_victory")
 	check(p.state == "victory", "beating Erebus wins the campaign")
+	check(Achievements.is_unlocked("sunrise") and Achievements.is_unlocked("speedrun"), "beating Erebus unlocks Sunrise and Speedrun")
+	check(not Achievements.is_unlocked("no_continues") or not Achievements.is_unlocked("ringside"), "skipped planets don't count as cleared")
+	_log("unlocked %d: %s" % [Achievements.unlocked_count(), Achievements.state.unlocked.keys()])
+	Achievements.flush()
+	var exp_path := shots.path_join("ironite_achievements/solarsiege.json")
+	var ex = JSON.parse_string(FileAccess.get_file_as_string(exp_path)) if FileAccess.file_exists(exp_path) else null
+	var ok_export: bool = ex is Dictionary and ex.get("game") == "solarsiege" and ex.achievements.size() == Achievements.defs.size() \
+		and ex.achievements.filter(func(a): return a.unlocked).size() == Achievements.unlocked_count() \
+		and FileAccess.file_exists(shots.path_join("ironite_achievements/solarsiege/sunrise.png"))
+	check(ok_export, "achievements are shared with Ironite Launcher (%s)" % exp_path)
 	bot = false
 	await key(KEY_ENTER)
 	await wait(1.0)
 	check(scene_name() == "Menu", "victory returns to the menu")
+	press_button("Achievements")
+	await wait(0.8)
+	await shot("s08_achievements")
+	await key(KEY_DOWN, 1.2)
+	await shot("s09_achievements_scrolled")
+	await key(KEY_ESCAPE)
+	await wait(0.5)
+	check(scene_name() == "Menu" and focused().to_upper() == "ACHIEVEMENTS", "the Achievements page closes back to the menu")
 
 
 # ---------------------------------------------------------------- same computer
@@ -491,6 +514,7 @@ func _host() -> void:
 	await wait(9.5)
 	await shot("h06_victory")
 	check(p.state == "victory", "online victory")
+	check(Achievements.is_unlocked("team_player"), "the host unlocks Team Player")
 	bot = false
 	await wait(3.0)
 	press_button("Back to Lobby")
@@ -551,6 +575,10 @@ func _guest() -> void:
 	await wait(2.5)
 	await shot("g04_victory")
 	check(ok, "guest sees the victory")
+	await wait(0.5)
+	_log("guest achievements: %s collector=%d" % [Achievements.state.unlocked.keys(), Achievements.progress("collector")])
+	check(Achievements.progress("collector") >= 4 and Achievements.progress("all_colours") >= 1, "the guest earns its own power-up and colour progress")
+	check(Achievements.is_unlocked("team_player") and Achievements.is_unlocked("sunrise"), "the guest unlocks Team Player and Sunrise from the host's game")
 	bot = false
 	ok = await wait_until(func(): return scene_name() == "Lobby", 60.0, "the lobby")
 	check(ok, "guest follows the host back to the lobby")

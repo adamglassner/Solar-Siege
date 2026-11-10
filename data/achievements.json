@@ -1,0 +1,693 @@
+{
+ "categories": {
+  "campaign": [
+   "Campaign",
+   45
+  ],
+  "combat": [
+   "Combat",
+   355
+  ],
+  "powerups": [
+   "Power-Ups",
+   285
+  ],
+  "erebus": [
+   "Erebus",
+   300
+  ],
+  "multiplayer": [
+   "Multiplayer",
+   175
+  ],
+  "editor": [
+   "Level Editor",
+   130
+  ],
+  "score": [
+   "Score",
+   40
+  ],
+  "secret": [
+   "Secret",
+   220
+  ]
+ },
+ "achievements": [
+  {
+   "cat": "campaign",
+   "id": "first_contact",
+   "name": "First Contact",
+   "desc": "Clear Mercury.",
+   "icon": {
+    "planet": "mercury"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "campaign",
+   "id": "homeworld",
+   "name": "Homeworld Secured",
+   "desc": "Clear Earth.",
+   "icon": {
+    "planet": "earth"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "campaign",
+   "id": "ringside",
+   "name": "Ringside Seat",
+   "desc": "Clear Saturn.",
+   "icon": {
+    "planet": "saturn"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "campaign",
+   "id": "edge_of_darkness",
+   "name": "The Edge of Darkness",
+   "desc": "Reach Pluto.",
+   "icon": {
+    "planet": "pluto"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "campaign",
+   "id": "sunrise",
+   "name": "Sunrise",
+   "desc": "Defeat Erebus and save the solar system.",
+   "icon": {
+    "img": "boss",
+    "scale": 1.15
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "campaign",
+   "id": "veteran",
+   "name": "Veteran",
+   "desc": "Beat the campaign on Hard.",
+   "icon": {
+    "img": "ships/ship_red.png",
+    "text": "HARD"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "campaign",
+   "id": "untouchable",
+   "name": "Untouchable",
+   "desc": "Beat the campaign from Mercury without losing a ship.",
+   "icon": {
+    "img": "ship_shield"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "campaign",
+   "id": "iron_pilot",
+   "name": "Iron Pilot",
+   "desc": "Beat the campaign on Hard from Mercury without losing a ship.",
+   "icon": {
+    "img": "ships/ship_silver.png",
+    "text": "IRON"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "campaign",
+   "id": "no_continues",
+   "name": "No Continues",
+   "desc": "Beat the campaign in one sitting, from Mercury, without Continue or Retry.",
+   "icon": {
+    "text": "1\u00d7",
+    "big": true
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "combat",
+   "id": "sharpshooter",
+   "name": "Sharpshooter",
+   "desc": "Clear a planet without missing a single laser shot.",
+   "icon": {
+    "img": "hud/power_homing.png",
+    "scale": 1.25
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "combat",
+   "id": "flawless_planet",
+   "name": "Flawless",
+   "desc": "Clear a planet without being hit, not even on a Shield.",
+   "icon": {
+    "img": "player.png"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "combat",
+   "id": "fortress",
+   "name": "Fortress",
+   "desc": "Clear a planet with every shield untouched.",
+   "icon": {
+    "img": "bunker"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "combat",
+   "id": "no_cover",
+   "name": "No Cover",
+   "desc": "Clear a planet after every shield has been destroyed.",
+   "icon": {
+    "img": "bunker_broken"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "combat",
+   "id": "close_shave",
+   "name": "Close Shave",
+   "desc": "Clear a planet after the fleet came within a row of breaking through.",
+   "icon": {
+    "img": "aliens/crab_3_0.png",
+    "low": true
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "combat",
+   "id": "they_broke_through",
+   "name": "They Broke Through",
+   "desc": "Let the fleet march all the way down to you.",
+   "icon": {
+    "img": "aliens/drone_0_0.png",
+    "text": "OOPS"
+   },
+   "target": 1,
+   "hidden": true
+  },
+  {
+   "cat": "combat",
+   "id": "diver_down",
+   "name": "Diver Down",
+   "desc": "Shoot 50 diving aliens.",
+   "icon": {
+    "img": "aliens/squid_1_0.png",
+    "rot": -25
+   },
+   "target": 50,
+   "hidden": false
+  },
+  {
+   "cat": "combat",
+   "id": "cruiser_killer",
+   "name": "Cruiser Killer",
+   "desc": "Destroy 25 Cruisers.",
+   "icon": {
+    "img": "aliens/cruiser_0_0.png"
+   },
+   "target": 25,
+   "hidden": false
+  },
+  {
+   "cat": "combat",
+   "id": "ghostbuster",
+   "name": "Ghostbuster",
+   "desc": "Destroy 100 Wraiths.",
+   "icon": {
+    "img": "aliens/wraith_5_0.png"
+   },
+   "target": 100,
+   "hidden": false
+  },
+  {
+   "cat": "combat",
+   "id": "saucer_hunter",
+   "name": "Saucer Hunter",
+   "desc": "Shoot down 10 bonus saucers.",
+   "icon": {
+    "img": "saucer_0.png"
+   },
+   "target": 10,
+   "hidden": false
+  },
+  {
+   "cat": "combat",
+   "id": "clean_sweep",
+   "name": "Clean Sweep",
+   "desc": "Shoot down every bonus saucer in a campaign, from Mercury to Pluto.",
+   "icon": {
+    "img": "saucer_1.png",
+    "text": "ALL"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "fully_loaded",
+   "name": "Fully Loaded",
+   "desc": "Have 5 power-ups active at once.",
+   "icon": {
+    "caps": [
+     "dual",
+     "rapid",
+     "shield",
+     "speed",
+     "homing"
+    ]
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "arsenal",
+   "name": "Arsenal",
+   "desc": "Have all 8 timed power-ups active at once.",
+   "icon": {
+    "caps": [
+     "dual",
+     "spread",
+     "rapid",
+     "speed",
+     "shield",
+     "pierce",
+     "homing",
+     "wingman"
+    ]
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "four_barrels",
+   "name": "Four Barrels",
+   "desc": "Fire with Dual Lasers, Triple Spread and Piercing Laser all active.",
+   "icon": {
+    "img": "lasers4"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "hoarder",
+   "name": "Hoarder",
+   "desc": "Build a single power-up up to 60 seconds.",
+   "icon": {
+    "img": "powerups/rapid.png",
+    "text": "60s"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "inheritance",
+   "name": "Inheritance",
+   "desc": "Arrive on Pluto with 4 or more power-ups.",
+   "icon": {
+    "planet": "pluto",
+    "caps": [
+     "dual",
+     "pierce",
+     "homing",
+     "wingman"
+    ]
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "collector",
+   "name": "Collector",
+   "desc": "Pick up every type of power-up.",
+   "icon": {
+    "caps": [
+     "dual",
+     "spread",
+     "rapid",
+     "speed",
+     "shield",
+     "bomb",
+     "life",
+     "pierce",
+     "homing",
+     "wingman",
+     "warp"
+    ]
+   },
+   "target": 11,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "kebab",
+   "name": "Kebab",
+   "desc": "Destroy 5 aliens with a single piercing shot.",
+   "icon": {
+    "img": "kebab"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "fire_and_forget",
+   "name": "Fire and Forget",
+   "desc": "Destroy 100 aliens with Homing Missiles.",
+   "icon": {
+    "img": "projectiles/missile.png",
+    "rot": 35,
+    "scale": 1.4
+   },
+   "target": 100,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "wingman_of_the_year",
+   "name": "Wingman of the Year",
+   "desc": "Your Wingman Drone destroys 100 aliens.",
+   "icon": {
+    "img": "wingman_drone.png",
+    "scale": 1.3
+   },
+   "target": 100,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "bullet_time",
+   "name": "Bullet Time",
+   "desc": "Defeat Erebus while Time Warp is active.",
+   "icon": {
+    "img": "powerups/warp.png",
+    "scale": 1.2
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "nova",
+   "name": "Nova",
+   "desc": "Destroy 10 aliens with a single Nova Bomb.",
+   "icon": {
+    "img": "powerups/bomb.png",
+    "scale": 1.2,
+    "ring": true
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "powerups",
+   "id": "pacifist_bomb",
+   "name": "Pacifist Bomb",
+   "desc": "Beat the campaign from Mercury without using a Nova Bomb.",
+   "icon": {
+    "img": "powerups/bomb.png",
+    "cross": true
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "erebus",
+   "id": "eye_to_eye",
+   "name": "Eye to Eye",
+   "desc": "Defeat Erebus without losing a ship during the fight.",
+   "icon": {
+    "img": "eye"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "erebus",
+   "id": "speedrun",
+   "name": "Speedrun",
+   "desc": "Defeat Erebus within 60 seconds of the fight starting.",
+   "icon": {
+    "img": "boss",
+    "text": "60s"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "erebus",
+   "id": "calm_before",
+   "name": "Eye of the Storm",
+   "desc": "Defeat Erebus within 20 seconds of it becoming enraged.",
+   "icon": {
+    "img": "eye_enraged"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "erebus",
+   "id": "minion_massacre",
+   "name": "Minion Massacre",
+   "desc": "Destroy 30 of Erebus's minions.",
+   "icon": {
+    "img": "aliens/squid_8_0.png"
+   },
+   "target": 30,
+   "hidden": false
+  },
+  {
+   "cat": "multiplayer",
+   "id": "squadron",
+   "name": "Squadron",
+   "desc": "Clear a planet with 4 pilots.",
+   "icon": {
+    "img": "ships4"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "multiplayer",
+   "id": "leave_no_one_behind",
+   "name": "Leave No One Behind",
+   "desc": "Bring a wingmate back with an Extra Ship.",
+   "icon": {
+    "img": "powerups/life.png",
+    "scale": 1.2
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "multiplayer",
+   "id": "last_one_standing",
+   "name": "Last One Standing",
+   "desc": "Clear a planet as the only pilot still flying.",
+   "icon": {
+    "img": "ships/ship_gold.png"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "multiplayer",
+   "id": "team_player",
+   "name": "Team Player",
+   "desc": "Defeat Erebus in online co-op.",
+   "icon": {
+    "img": "ships2"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "multiplayer",
+   "id": "all_colours",
+   "name": "All Colours",
+   "desc": "Fly every ship colour in multiplayer.",
+   "icon": {
+    "img": "ships8"
+   },
+   "target": 8,
+   "hidden": false
+  },
+  {
+   "cat": "editor",
+   "id": "architect",
+   "name": "Architect",
+   "desc": "Save your first custom map.",
+   "icon": {
+    "img": "grid"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "editor",
+   "id": "playtester",
+   "name": "Playtester",
+   "desc": "Beat one of your own custom maps.",
+   "icon": {
+    "img": "grid",
+    "text": "PLAY"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "editor",
+   "id": "boss_builder",
+   "name": "Boss Builder",
+   "desc": "Beat a custom map with Erebus at the end.",
+   "icon": {
+    "img": "grid_boss"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "editor",
+   "id": "sharing_is_caring",
+   "name": "Sharing Is Caring",
+   "desc": "Play a custom map online as a guest.",
+   "icon": {
+    "img": "grid",
+    "text": "ONLINE"
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "score",
+   "id": "five_figures",
+   "name": "Five Figures",
+   "desc": "Score 10,000 points in one game.",
+   "icon": {
+    "text": "10K",
+    "big": true
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "score",
+   "id": "high_roller",
+   "name": "High Roller",
+   "desc": "Score 50,000 points in one game.",
+   "icon": {
+    "text": "50K",
+    "big": true
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "score",
+   "id": "legend",
+   "name": "Legend",
+   "desc": "Score 100,000 points in one game.",
+   "icon": {
+    "text": "100K",
+    "big": true
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "score",
+   "id": "personal_best",
+   "name": "Personal Best",
+   "desc": "Beat your high score.",
+   "icon": {
+    "text": "BEST",
+    "big": true
+   },
+   "target": 1,
+   "hidden": false
+  },
+  {
+   "cat": "secret",
+   "id": "patience",
+   "name": "Patience",
+   "desc": "Stay on the main menu for 5 minutes.",
+   "icon": {
+    "img": "player_idle",
+    "text": "5:00"
+   },
+   "target": 1,
+   "hidden": true
+  },
+  {
+   "cat": "secret",
+   "id": "lore_reader",
+   "name": "Lore Reader",
+   "desc": "Watch the whole story without skipping.",
+   "icon": {
+    "img": "story"
+   },
+   "target": 1,
+   "hidden": true
+  },
+  {
+   "cat": "secret",
+   "id": "turtle",
+   "name": "Turtle",
+   "desc": "Clear a planet without leaving the cover of one shield.",
+   "icon": {
+    "img": "bunker",
+    "ship": true
+   },
+   "target": 1,
+   "hidden": true
+  },
+  {
+   "cat": "secret",
+   "id": "meant_to_do_that",
+   "name": "I Meant to Do That",
+   "desc": "Lose a ship in the first 3 seconds of a planet.",
+   "icon": {
+    "img": "explosion"
+   },
+   "target": 1,
+   "hidden": true
+  },
+  {
+   "cat": "secret",
+   "id": "cheapskate",
+   "name": "Cheapskate",
+   "desc": "Clear Mercury without picking up a power-up.",
+   "icon": {
+    "planet": "mercury",
+    "text": "$0"
+   },
+   "target": 1,
+   "hidden": true
+  }
+ ]
+}

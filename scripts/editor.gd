@@ -278,6 +278,7 @@ func _save() -> bool:
 	Global.editor_map = map.duplicate(true)
 	Global.editor_path = path
 	Global.toast("Saved \"%s\"" % map.name)
+	Achievements.unlock("architect")
 	return true
 
 

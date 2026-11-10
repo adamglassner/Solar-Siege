@@ -42,12 +42,13 @@ func _build() -> void:
 	items.append(["New Game", _new_game])
 	items.append(["Multiplayer", func(): Global.goto_scene("res://scenes/lobby.tscn")])
 	items.append(["Custom Maps", func(): Global.goto_scene("res://scenes/maps.tscn")])
+	items.append(["Achievements", func(): AchievementsScreen.open()])
 	items.append(["Options", func(): OptionsMenu.open()])
 	items.append(["Credits", func(): InfoScreen.open_credits()])
 	items.append(["Changelog", func(): InfoScreen.open_changelog()])
 	items.append(["Exit", _exit_game])
-	var step := 66.0
-	var y := 356.0 if not save.is_empty() else 384.0
+	var step := 62.0
+	var y := 352.0 if not save.is_empty() else 372.0
 	for i in items.size():
 		var b := GameButton.make(items[i][0], items[i][1], 620, 56)
 		b.position = Vector2(960 - 310, y + i * step)
@@ -107,6 +108,8 @@ func _exit_game() -> void:
 
 func _process(dt: float) -> void:
 	_t += dt
+	if _t > 300.0:
+		Achievements.unlock("patience")
 	_title.position.y = 70 + sin(_t * 1.2) * 6
 	_subtitle.position.y = 300 - _subtitle.size.y / 2 + sin(_t * 1.2) * 6
 	_ship.position.y = 820 + sin(_t * 2.0) * 10

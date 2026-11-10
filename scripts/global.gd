@@ -152,7 +152,8 @@ func load_game() -> Dictionary:
 	return {"level": lv, "score": int(data.score), "lives": int(data.lives), "bombs": int(data.bombs),
 		"difficulty": str(data.difficulty), "saved_at": int(data.get("saved_at", 0)),
 		"powers": data.get("powers", {}) if typeof(data.get("powers")) == TYPE_DICTIONARY else {},
-		"warp": float(data.get("warp", 0.0))}
+		"warp": float(data.get("warp", 0.0)),
+		"run": data.get("run", {}) if typeof(data.get("run")) == TYPE_DICTIONARY else {}, "continued": true}
 
 
 func save_game(s: Dictionary) -> void:
@@ -220,6 +221,7 @@ func start_game(start: Dictionary) -> void:
 
 
 func quit_game() -> void:
+	Achievements.flush()
 	get_tree().quit()
 
 

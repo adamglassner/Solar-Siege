@@ -70,6 +70,7 @@ func _squadron_textures() -> Array:
 func _next() -> void:
 	_i += 1
 	if _i >= _panels.size():
+		Achievements.unlock("lore_reader")
 		_finish()
 		return
 	var p: Dictionary = _panels[_i]

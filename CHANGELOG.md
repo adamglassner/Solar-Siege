@@ -14,6 +14,23 @@ reads this file, so new entries show up in the game automatically.
 
 ---
 
+## [1.4.0] - 2026-11-10
+
+### Added
+- **Achievements**: 54 to unlock, each with its own medal.
+  - **Campaign**: clear Mercury, Earth and Saturn, reach Pluto, defeat Erebus, beat it on Hard, without losing a ship, in one sitting.
+  - **Combat**: Sharpshooter (no missed shots on a planet), Flawless, Fortress, No Cover, Close Shave, Diver Down, Cruiser Killer, Ghostbuster, Saucer Hunter, Clean Sweep.
+  - **Power-ups**: Fully Loaded, Arsenal, Four Barrels, Hoarder, Inheritance, Collector, Kebab, Fire and Forget, Wingman of the Year, Bullet Time, Nova, Pacifist Bomb.
+  - **Erebus**: Eye to Eye, Speedrun, Eye of the Storm, Minion Massacre.
+  - **Multiplayer**: Squadron, Leave No One Behind, Last One Standing, Team Player, All Colours.
+  - **Level Editor**: Architect, Playtester, Boss Builder, Sharing Is Caring.
+  - **Score**: 10,000, 50,000 and 100,000 points in one game, and beating your high score.
+  - **Secret**: a few hidden ones to discover.
+- An **Achievements** page on the main menu with every medal by category, the date you unlocked it, and progress bars for the counting ones. Secret achievements stay hidden until you find them.
+- A pop-up when you unlock an achievement.
+- Achievements count in single player and co-op. Online, every pilot earns their own. Custom maps count only toward the Level Editor achievements.
+- **Ironite Launcher** can show your Solar Siege achievements: the game keeps a copy for it in `%APPDATA%\Ironite\Achievements`.
+
 ## [1.3.0] - 2026-11-10
 
 ### Added
