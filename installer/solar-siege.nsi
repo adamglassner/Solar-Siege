@@ -7,7 +7,7 @@ Unicode true
 !include "FileFunc.nsh"
 
 !ifndef VERSION
-  !define VERSION "1.4.1"
+  !define VERSION "1.4.2"
 !endif
 !define APPNAME "Solar Siege"
 !define PUBLISHER "Ironite"

@@ -271,7 +271,13 @@ func _single() -> void:
 	await shot("s06_boss")
 	if p.boss != null:
 		p.debug_damage_boss(int(p.boss.hp))
-	await wait(9.0)
+	## after Erebus goes down, the boss warning must never come back
+	var warned := false
+	for i in 540:
+		await get_tree().process_frame
+		if p.state == "boss_warn":
+			warned = true
+	check(not warned, "no boss warning after Erebus is defeated")
 	await shot("s07_victory")
 	check(p.state == "victory", "beating Erebus wins the campaign")
 	check(Achievements.is_unlocked("sunrise") and Achievements.is_unlocked("speedrun"), "beating Erebus unlocks Sunrise and Speedrun")

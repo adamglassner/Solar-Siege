@@ -193,8 +193,9 @@ var checkpoint := {}
 var start_info := {}
 
 var hi_score := 0
-var team_bonus := 0
-var warp_t := 0.0 # clear bonuses (single player adds them to the pilot)
+var team_bonus := 0 # clear bonuses (single player adds them to the pilot)
+var warp_t := 0.0
+var boss_defeated := false # Erebus is down; the planet clears after its explosion (don't warn again)
 
 var aliens: Array[Alien] = []
 var total_aliens := 1
@@ -464,6 +465,7 @@ func load_level(i: int) -> void:
 	_build_formation()
 	planet_bunker_hit = false
 	planet_close = false
+	boss_defeated = false
 	bunker_cells = bunkers.map(_bunker_solid)
 	for p in pilots:
 		p.planet_hit = false
@@ -1687,7 +1689,7 @@ func _check_progress() -> void:
 	if remaining > 0:
 		return
 	if lv.boss:
-		if boss == null:
+		if boss == null and not boss_defeated:
 			state = "boss_warn"
 			state_t = 0
 			sfx("boss_warn")
@@ -1849,6 +1851,7 @@ func _update_boss(dt: float) -> void:
 					add_score(p, share)
 			fx_text(b.x, b.y, "+10,000", Color("#ffe36b"), 56, 2.5)
 			boss = null
+			boss_defeated = true
 			lasers.clear()
 			bullets.assign(bullets.filter(func(q): return not q.enemy))
 			schedule(2.2, _level_cleared)

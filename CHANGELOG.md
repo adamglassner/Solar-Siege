@@ -14,6 +14,11 @@ reads this file, so new entries show up in the game automatically.
 
 ---
 
+## [1.4.2] - 2026-11-11
+
+### Fixed
+- After you defeat Erebus, the "WARNING – A massive signal is approaching" alert and the boss music no longer play again before the victory screen.
+
 ## [1.4.1] - 2026-11-11
 
 ### Changed
