@@ -1,6 +1,6 @@
 # Solar Siege
 
-**Version 1.4.0** · A game by **Ironite** · A modern HD take on the classic arcade alien shooter, fought across all nine worlds of the solar system. Made with the **Godot Engine 4.7.2**.
+**Version 1.4.1** · A game by **Ironite** · A modern HD take on the classic arcade alien shooter, fought across all nine worlds of the solar system. Made with the **Godot Engine 4.7.2**.
 
 Fly a lone fighter from Mercury to Pluto, blast marching alien formations, hide behind crumbling shields, grab power-ups and take down the mothership boss **Erebus** at the edge of the system.
 
@@ -8,7 +8,7 @@ Fly a lone fighter from Mercury to Pluto, blast marching alien formations, hide 
 
 ## Install and play
 
-Run **`Solar Siege Setup 1.4.0.exe`**. It installs to your user folder (no admin rights needed) and adds Start Menu and desktop shortcuts plus an uninstaller (Settings → Apps).
+Run **`Solar Siege Setup 1.4.1.exe`**. It installs to your user folder (no admin rights needed) and adds Start Menu and desktop shortcuts plus an uninstaller (Settings → Apps).
 
 > Windows SmartScreen may warn about an unknown publisher because the installer isn't code-signed. Click **More info → Run anyway**.
 
@@ -179,7 +179,7 @@ Every graphic and sound is a plain file. To restyle the game, replace a file wit
 2. Install **NSIS 3** from https://nsis.sourceforge.io/Download (once).
 3. Double-click **`build-windows.bat`**. If Godot isn't at `C:\Godot\Godot_v4.7.2-stable_win64.exe`, edit the path at the top of the file first.
 
-The installer appears in `build\Solar Siege Setup 1.4.0.exe`.
+The installer appears in `build\Solar Siege Setup 1.4.1.exe`.
 
 ### Releasing a new version
 

@@ -14,6 +14,18 @@ reads this file, so new entries show up in the game automatically.
 
 ---
 
+## [1.4.1] - 2026-11-11
+
+### Changed
+- **Erebus is easier to dodge.**
+  - When enraged, its two rings of shots now line up, so one gap gets you through both. Before, the second ring filled the first ring's gaps.
+  - Its next attack waits until the last one has finished, so patterns no longer pile on top of each other.
+  - Slightly fewer and slower shots, a little more warning before the lasers fire, and its shots have a slightly smaller hitbox.
+- **Erebus now follows the difficulty you pick:**
+  - **Easy:** 60% health, longer pauses between attacks, fewer and slower shots, more laser warning, and a single ring when enraged.
+  - **Normal:** the fight described above.
+  - **Hard:** 130% health, shorter pauses, more and faster shots, and less laser warning.
+
 ## [1.4.0] - 2026-11-10
 
 ### Added

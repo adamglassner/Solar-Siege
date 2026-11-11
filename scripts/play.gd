@@ -42,6 +42,13 @@ const WARP_SLOW := 0.45
 const BULLET_TYPES := {"laser": 0, "pierce": -1, "missile": -2, "drone": -3}
 const BOSS_STATES := ["enter", "fight", "dying"]
 ## The only achievements custom maps can earn; everything else needs the campaign.
+## How tough Erebus is on each difficulty: health, pause between attacks, shots per attack, shot speed,
+## time to get clear of a laser, and how many rings the enraged ring attack fires.
+const BOSS_DIFF := {
+	"easy": {"hp": 0.6, "rest": 1.5, "shots": 0.7, "speed": 0.78, "warn": 1.35, "rings": 1},
+	"normal": {"hp": 1.0, "rest": 1.0, "shots": 1.0, "speed": 1.0, "warn": 1.0, "rings": 2},
+	"hard": {"hp": 1.3, "rest": 0.75, "shots": 1.2, "speed": 1.12, "warn": 0.85, "rings": 2},
+}
 const EDITOR_ACH := ["architect", "playtester", "boss_builder", "sharing_is_caring"]
 const SCORE_ACH := [[10000, "five_figures"], [50000, "high_roller"], [100000, "legend"]]
 
@@ -1772,8 +1779,12 @@ func _campaign_achievements() -> void:
 
 
 # ---------------------------------------------------------------- boss
+func _bd() -> Dictionary:
+	return BOSS_DIFF.get(diff, BOSS_DIFF.normal)
+
+
 func _spawn_boss() -> void:
-	var hp := roundi(180 * float(dm.boss_hp) * (1.0 + 0.6 * (pilots.size() - 1)))
+	var hp := roundi(180 * float(_bd().hp) * (1.0 + 0.6 * (pilots.size() - 1)))
 	boss = {"x": W / 2, "y": -260.0, "hp": hp, "max_hp": hp, "t": 0.0, "phase": 1, "flash": 0.0, "state": "enter",
 		"attack_t": 2.5, "attack_idx": 0, "dying_t": 0.0, "boom_t": 0.0, "eye": Vector2.ZERO, "bomb_hit": -1}
 
@@ -1793,7 +1804,7 @@ func _update_boss(dt: float) -> void:
 	for l in lasers:
 		if l.t >= l.warn:
 			for p in pilots:
-				if p.playing() and p.invuln <= 0 and absf(l.x - p.x) < 58:
+				if p.playing() and p.invuln <= 0 and absf(l.x - p.x) < 52:
 					if p.t("shield") > 0:
 						p.planet_hit = true
 						if randf() < dt * 10:
@@ -1850,8 +1861,9 @@ func _update_boss(dt: float) -> void:
 		var attacks := ["radial", "aimed", "lasers", "minions", "spiral"]
 		var atk: String = attacks[b.attack_idx % attacks.size()]
 		b.attack_idx += 1
-		_boss_attack(atk)
-		b.attack_t = (1.7 if b.phase == 2 else 2.6) / sqrt(float(dm.fire)) / sqrt(_difficulty_scale())
+		## the next attack waits until this one has finished, so patterns never pile on top of each other
+		var busy := _boss_attack(atk)
+		b.attack_t = busy + (1.4 if b.phase == 2 else 2.2) * float(_bd().rest) / sqrt(_difficulty_scale())
 
 
 func _boss_shot(angle: float, speed: float, r := 11, hue := 300.0) -> void:
@@ -1860,7 +1872,7 @@ func _boss_shot(angle: float, speed: float, r := 11, hue := 300.0) -> void:
 	var b := Bullet.new()
 	b.pos = Vector2(boss.x, boss.y + 60)
 	b.vel = Vector2(sin(angle), cos(angle)) * speed
-	b.size = Vector2(r * 1.4, r * 1.8)
+	b.size = Vector2(r * 1.15, r * 1.5) # a little smaller than it looks, so near misses stay misses
 	b.tex = _plasma(hue, r)
 	b.r = r
 	b.enemy = true
@@ -1869,45 +1881,55 @@ func _boss_shot(angle: float, speed: float, r := 11, hue := 300.0) -> void:
 	bullets.append(b)
 
 
-func _boss_attack(kind: String) -> void:
+## Fires one of Erebus's attacks and returns how long it keeps firing.
+func _boss_attack(kind: String) -> float:
 	var p2: bool = boss.phase == 2
-	var bs := 300.0 * float(dm.bullet)
+	var bd := _bd()
+	var bs := 270.0 * float(bd.speed)
+	var more := func(n: int) -> int: return maxi(1, roundi(n * float(bd.shots)))
 	match kind:
 		"radial":
-			var n := 22 if p2 else 16
-			for k in (2 if p2 else 1):
-				schedule(k * 0.35, func():
+			## enraged, it fires two rings, lined up so the same gap gets you through both
+			var n: int = more.call(18 if p2 else 14)
+			var rings: int = int(bd.rings) if p2 else 1
+			for k in rings:
+				schedule(k * 0.45, func():
 					if boss == null:
 						return
 					for i in n:
-						_boss_shot(float(i) / n * TAU + k * 0.15, bs, 11, 290)
+						_boss_shot(float(i) / n * TAU, bs, 11, 290)
 					sfx("alien_shot_heavy"))
+			return 0.45 * (rings - 1)
 		"aimed":
-			for i in (6 if p2 else 4):
-				schedule(i * 0.2, func():
+			var volleys: int = more.call(5 if p2 else 4)
+			for i in volleys:
+				schedule(i * 0.26, func():
 					if boss == null:
 						return
 					var tp := _target()
 					var ang := atan2(tp.x - boss.x, PLAYER_Y - boss.y - 60)
-					for o in [-0.18, 0.0, 0.18]:
-						_boss_shot(ang + o, bs * 1.5, 10, 330)
+					for o in [-0.2, 0.0, 0.2]:
+						_boss_shot(ang + o, bs * 1.3, 10, 330)
 					sfx("alien_shot"))
+			return volleys * 0.26
 		"lasers":
 			var tp := _target()
-			var xs := [tp.x, clampf(tp.x + [-1, 1].pick_random() * randf_range(250, 450), 80, W - 80)]
-			if p2:
+			var xs := [tp.x, clampf(tp.x + [-1, 1].pick_random() * randf_range(300, 480), 80, W - 80)]
+			if p2 and diff != "easy":
 				xs.append(randf_range(100, W - 100))
 			if multi():
 				var other := _target()
 				if other != tp:
 					xs.append(other.x)
+			var warn: float = (1.05 if p2 else 1.25) * float(bd.warn)
 			for x in xs:
-				lasers.append({"x": x, "t": 0.0, "warn": 0.85 if p2 else 1.1, "dur": 1.1})
+				lasers.append({"x": x, "t": 0.0, "warn": warn, "dur": 1.0})
 			sfx("boss_laser_charge")
-			schedule(0.85 if p2 else 1.1, func():
+			schedule(warn, func():
 				if boss != null:
 					sfx("boss_laser")
 					add_shake(8))
+			return warn + 1.0
 		"minions":
 			var n := (4 if p2 else 3) + (pilots.size() - 1)
 			for i in n:
@@ -1917,17 +1939,20 @@ func _boss_attack(kind: String) -> void:
 				m.target = _target().idx
 				aliens.append(m)
 			fx_explosion(boss.x, boss.y + 80, 280, 1)
+			return 0.6
 		"spiral":
-			var n := 34 if p2 else 24
+			var n: int = more.call(26 if p2 else 20)
 			for i in n:
-				schedule(i * 0.07, func():
+				schedule(i * 0.09, func():
 					if boss == null:
 						return
 					var a: float = i * 0.45 + boss.t
-					_boss_shot(a, bs * 0.9, 9, 270)
-					_boss_shot(a + PI, bs * 0.9, 9, 270)
+					_boss_shot(a, bs * 0.85, 9, 270)
+					_boss_shot(a + PI, bs * 0.85, 9, 270)
 					if i % 3 == 0:
 						sfx("alien_shot"))
+			return n * 0.09
+	return 0.0
 
 
 func _damage_boss(dmg: int, x: float, y: float, p: Pilot) -> void:
